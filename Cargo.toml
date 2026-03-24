@@ -7,6 +7,7 @@ name = "lortex"
 version.workspace = true
 edition.workspace = true
 description = "模块化、高性能的 Rust Agent 框架"
+autoexamples = false
 
 [features]
 default = ["executor", "providers", "protocols", "tools", "swarm", "guardrails", "memory", "macros"]
