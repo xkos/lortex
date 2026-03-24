@@ -1,0 +1,9 @@
+[package]
+name = "lortex-router"
+version.workspace = true
+edition.workspace = true
+description = "Lortex 异构模型路由：按质量/成本/隐私路由到不同模型"
+
+[dependencies]
+lortex-core = { path = "../core" }
+async-trait.workspace = true

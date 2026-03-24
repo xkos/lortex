@@ -1,0 +1,16 @@
+[package]
+name = "lortex-swarm"
+version.workspace = true
+edition.workspace = true
+description = "Lortex 多 Agent 编排：Router、Pipeline、Parallel、Hierarchical"
+
+[dependencies]
+lortex-core = { path = "../core" }
+lortex-executor = { path = "../executor" }
+tokio.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+futures.workspace = true
+tracing.workspace = true

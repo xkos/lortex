@@ -1,0 +1,14 @@
+[package]
+name = "lortex-tools"
+version.workspace = true
+edition.workspace = true
+description = "Lortex 内置工具集与工具注册表"
+
+[dependencies]
+lortex-core = { path = "../core" }
+tokio.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+reqwest.workspace = true

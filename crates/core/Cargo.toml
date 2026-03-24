@@ -1,0 +1,17 @@
+[package]
+name = "lortex-core"
+version.workspace = true
+edition.workspace = true
+description = "Lortex 框架核心 trait 和类型定义"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+typed-builder.workspace = true
+futures.workspace = true
+tracing.workspace = true

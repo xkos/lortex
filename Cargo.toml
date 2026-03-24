@@ -1,0 +1,63 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "examples/*"]
+
+[package]
+name = "lortex"
+version.workspace = true
+edition.workspace = true
+description = "模块化、高性能的 Rust Agent 框架"
+
+[features]
+default = ["executor", "providers", "protocols", "tools", "swarm", "guardrails", "memory", "macros"]
+executor = ["dep:lortex-executor"]
+providers = ["dep:lortex-providers"]
+protocols = ["dep:lortex-protocols"]
+tools = ["dep:lortex-tools"]
+swarm = ["dep:lortex-swarm"]
+guardrails = ["dep:lortex-guardrails"]
+memory = ["dep:lortex-memory"]
+macros = ["dep:lortex-macros"]
+
+[dependencies]
+lortex-core = { path = "crates/core" }
+lortex-executor = { path = "crates/executor", optional = true }
+lortex-providers = { path = "crates/providers", optional = true }
+lortex-protocols = { path = "crates/protocols", optional = true }
+lortex-tools = { path = "crates/tools", optional = true }
+lortex-swarm = { path = "crates/swarm", optional = true }
+lortex-guardrails = { path = "crates/guardrails", optional = true }
+lortex-memory = { path = "crates/memory", optional = true }
+lortex-macros = { path = "crates/macros", optional = true }
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+# 外部依赖
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+futures = "0.3"
+tokio-stream = "0.1"
+async-trait = "0.1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+typed-builder = "0.20"
+
+# workspace 内部 crate
+lortex-core = { path = "crates/core" }
+lortex-executor = { path = "crates/executor" }
+lortex-providers = { path = "crates/providers" }
+lortex-protocols = { path = "crates/protocols" }
+lortex-tools = { path = "crates/tools" }
+lortex-swarm = { path = "crates/swarm" }
+lortex-guardrails = { path = "crates/guardrails" }
+lortex-memory = { path = "crates/memory" }
+lortex-macros = { path = "crates/macros" }

@@ -1,0 +1,142 @@
+---
+description: UI HTML 原型生成规范 — 用静态 HTML 快速验证界面布局和交互
+globs: ui-preview/**/*.html
+alwaysApply: false
+---
+
+# UI HTML 原型生成规范
+
+> 用静态 HTML 快速验证界面布局和交互，适用于任何有 UI 的项目。按需加载（globs: ui-preview/**/*.html）。
+
+在 UI 实现前，用静态 HTML 原型低成本确认布局、信息层级和交互模式。
+
+## 设计思考（先于编码）
+
+动手写原型之前，先回答四个问题：
+
+- **Purpose** — 这个界面解决什么问题？用户是谁？使用频率如何？
+- **Tone** — 选择一个明确的风格立场（极简克制、信息密集、温暖有机、冷峻工业、杂志编辑风等），而非"默认好看"。
+- **Constraints** — 目标平台（桌面/移动/Web）、性能预算、无障碍需求。
+- **Differentiation** — 什么让这个界面令人印象深刻？一个记忆点就够。
+
+核心原则：大胆极繁和精致极简都行，关键是 intentionality — 每个设计决策都有理由。
+
+## 何时使用
+
+配合项目的 PRD 和 UI 设计文档一起使用：
+1. 阅读项目的 UI 设计文档（信息架构、交互决策、状态设计等）
+2. 根据设计文档中的视图规划，逐个生成对应的 HTML 原型页面
+3. 原型只验证布局和视觉结构，不实现业务逻辑
+
+## 技术栈
+
+- HTML5 + TailwindCSS 3.0+（通过 CDN 引入，零构建）
+- Preline UI 组件库（通过 CDN 引入，按需使用其组件增强交互）
+- 图标库：Font Awesome 或 Material Icons（通过 CDN 引入，不用 emoji 代替图标）
+- 必要的 JavaScript（仅用于交互演示：Tab 切换、面板折叠、状态切换等）
+
+## 文件组织
+
+```
+ui-preview/
+├── index.html          ← 汇总页，iframe 嵌入所有页面，一览全局
+├── page-a.html         ← 页面 A（自包含，独立可运行）
+├── page-b.html         ← 页面 B
+└── ...
+```
+
+- 每个页面自包含，独立可运行，浏览器直接打开即可预览
+- `index.html` 用 flex 布局并排展示所有页面的 iframe，附带页面名称标签
+- 文件名用英文小写 + 连字符，语义化命名
+
+## 页面规范
+
+### 结构
+
+- 根据目标平台决定页面尺寸：
+  - 桌面应用：100vw × 100vh，不出现页面级滚动条
+  - 移动应用：模拟目标设备尺寸比例，居中展示
+- 内部内容区可滚动（overflow-auto），隐藏或美化滚动条
+- 主题（亮/暗）与目标应用保持一致
+
+### 视觉
+
+- 清晰的视觉层次：标题 > 正文 > 辅助信息 > 禁用态
+- 模块化卡片式布局，合理留白
+- 圆角、阴影等视觉细节与目标应用风格一致
+- 品牌色通过 `tailwind.config` 扩展定义，保持全局一致
+
+### 内容填充
+
+- 使用贴近真实场景的模拟数据，不用 "Lorem ipsum" 或 "测试文本"
+- 图片使用渐变色块或 placeholder 服务，加载失败时显示灰色占位区域
+- 数据量要接近真实使用场景（列表不要只放 2-3 条，放 8-12 条以验证滚动和密度）
+
+### 交互与状态
+
+- 按钮、链接 hover 时有视觉反馈（颜色变化、微缩放等）
+- 在同一页面中展示关键元素的多种状态：正常态、选中态、hover 态、禁用态
+- 关键页面应包含空状态和加载状态的展示（可用独立区块或注释切换）
+- 内容区域加载时可添加淡入动画提升真实感
+
+### 图标
+
+- 统一使用一个图标库，不混用多个图标源
+- 图标大小与文字保持视觉平衡
+- 确保所有图标都能正常加载，不出现方块或缺失
+
+## 不做什么
+
+- 不实现真实的业务逻辑（不调 API、不读写数据、不做路由跳转）
+- 不追求像素级完美（目的是确认布局和信息层级，不是最终交付物）
+- 不引入构建工具（纯 CDN 引入，保持零配置可运行）
+- 不做跨页面导航（每个页面独立，通过 index.html 汇总查看）
+
+## 反模式自检
+
+生成原型时逐项检查，命中任何一项即需修正：
+
+- [ ] 设计思考四问（Purpose/Tone/Constraints/Differentiation）未回答就开始写代码
+- [ ] 使用框架默认主题未做任何定制
+- [ ] 全部使用系统默认字体，无字体层级
+- [ ] 可点击元素无 hover 反馈
+- [ ] padding/margin 数值随意不统一
+- [ ] 颜色硬编码散落在各处，未通过变量/主题管理
+- [ ] 背景纯色无质感处理（无渐变、无纹理、无层次）
+- [ ] 内容填充使用 "Lorem ipsum" 或 "测试文本" 而非贴近真实的模拟数据
+- [ ] 桌面端使用手机式单栏布局
+- [ ] 关键状态缺失（空状态、加载态、禁用态）
+
+## index.html 汇总页模板
+
+```html
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>UI 原型预览</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a0a; padding: 24px; font-family: system-ui, sans-serif; }
+    h1 { color: #e5e7eb; font-size: 20px; margin-bottom: 4px; }
+    .subtitle { color: #6b7280; font-size: 13px; margin-bottom: 24px; }
+    .grid { display: flex; flex-wrap: wrap; gap: 24px; }
+    .frame-wrapper { display: flex; flex-direction: column; gap: 6px; }
+    .frame-label { color: #9ca3af; font-size: 12px; font-weight: 500; }
+    iframe { border: 1px solid #1f2937; border-radius: 10px; }
+    .frame-wrapper:hover iframe { border-color: #6366f1; }
+  </style>
+</head>
+<body>
+  <h1>项目名 — UI 原型</h1>
+  <p class="subtitle">点击各页面可交互，或直接打开单个 HTML 文件查看完整效果。</p>
+  <div class="grid">
+    <div class="frame-wrapper">
+      <span class="frame-label">页面名称</span>
+      <iframe src="page-a.html" width="1280" height="800"></iframe>
+    </div>
+    <!-- 更多页面 -->
+  </div>
+</body>
+</html>
+```

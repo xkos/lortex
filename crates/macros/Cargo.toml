@@ -1,0 +1,13 @@
+[package]
+name = "lortex-macros"
+version.workspace = true
+edition.workspace = true
+description = "Lortex 框架过程宏：#[tool] 等"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

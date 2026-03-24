@@ -1,0 +1,13 @@
+[package]
+name = "lortex-guardrails"
+version.workspace = true
+edition.workspace = true
+description = "Lortex 安全护栏：内容过滤、频率限制、Token 预算、工具审批"
+
+[dependencies]
+lortex-core = { path = "../core" }
+tokio.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
