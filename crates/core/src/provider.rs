@@ -155,3 +155,154 @@ impl fmt::Debug for dyn Provider {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn completion_request_serde_roundtrip() {
+        let req = CompletionRequest {
+            model: "gpt-4o".into(),
+            messages: vec![Message::user("hello")],
+            tools: vec![ToolDefinition {
+                name: "search".into(),
+                description: "Search the web".into(),
+                parameters: json!({"type":"object"}),
+            }],
+            temperature: 0.5,
+            max_tokens: Some(1024),
+            stop: vec!["END".into()],
+            extra: json!({}),
+        };
+        let json_str = serde_json::to_string(&req).unwrap();
+        let back: CompletionRequest = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(back.model, "gpt-4o");
+        assert_eq!(back.messages.len(), 1);
+        assert_eq!(back.tools.len(), 1);
+        assert_eq!(back.tools[0].name, "search");
+        assert_eq!(back.temperature, 0.5);
+        assert_eq!(back.max_tokens, Some(1024));
+        assert_eq!(back.stop, vec!["END"]);
+    }
+
+    #[test]
+    fn completion_request_default_temperature() {
+        let json_str = r#"{"model":"gpt-4o","messages":[]}"#;
+        let req: CompletionRequest = serde_json::from_str(json_str).unwrap();
+        assert_eq!(req.temperature, 0.7);
+        assert!(req.tools.is_empty());
+        assert!(req.stop.is_empty());
+    }
+
+    #[test]
+    fn usage_serde_roundtrip() {
+        let usage = Usage {
+            prompt_tokens: 100,
+            completion_tokens: 50,
+            total_tokens: 150,
+        };
+        let json_str = serde_json::to_string(&usage).unwrap();
+        let back: Usage = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(back.prompt_tokens, 100);
+        assert_eq!(back.completion_tokens, 50);
+        assert_eq!(back.total_tokens, 150);
+    }
+
+    #[test]
+    fn finish_reason_serde() {
+        for (reason, expected) in [
+            (FinishReason::Stop, "\"stop\""),
+            (FinishReason::ToolCalls, "\"tool_calls\""),
+            (FinishReason::Length, "\"length\""),
+            (FinishReason::ContentFilter, "\"content_filter\""),
+        ] {
+            let json = serde_json::to_string(&reason).unwrap();
+            assert_eq!(json, expected);
+            let back: FinishReason = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, reason);
+        }
+    }
+
+    #[test]
+    fn stream_event_content_delta_serde() {
+        let event = StreamEvent::ContentDelta {
+            delta: "Hello".into(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"type\":\"content_delta\""));
+        let back: StreamEvent = serde_json::from_str(&json).unwrap();
+        match back {
+            StreamEvent::ContentDelta { delta } => assert_eq!(delta, "Hello"),
+            _ => panic!("expected ContentDelta"),
+        }
+    }
+
+    #[test]
+    fn stream_event_tool_call_start_serde() {
+        let event = StreamEvent::ToolCallStart {
+            index: 0,
+            id: "call_1".into(),
+            name: "search".into(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let back: StreamEvent = serde_json::from_str(&json).unwrap();
+        match back {
+            StreamEvent::ToolCallStart { index, id, name } => {
+                assert_eq!(index, 0);
+                assert_eq!(id, "call_1");
+                assert_eq!(name, "search");
+            }
+            _ => panic!("expected ToolCallStart"),
+        }
+    }
+
+    #[test]
+    fn stream_event_done_with_usage() {
+        let event = StreamEvent::Done {
+            usage: Some(Usage {
+                prompt_tokens: 10,
+                completion_tokens: 20,
+                total_tokens: 30,
+            }),
+            finish_reason: Some(FinishReason::Stop),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let back: StreamEvent = serde_json::from_str(&json).unwrap();
+        match back {
+            StreamEvent::Done {
+                usage,
+                finish_reason,
+            } => {
+                assert_eq!(usage.unwrap().total_tokens, 30);
+                assert_eq!(finish_reason, Some(FinishReason::Stop));
+            }
+            _ => panic!("expected Done"),
+        }
+    }
+
+    #[test]
+    fn provider_capabilities_default() {
+        let caps = ProviderCapabilities::default();
+        assert!(!caps.streaming);
+        assert!(!caps.tool_calling);
+        assert!(!caps.vision);
+        assert!(!caps.embeddings);
+        assert!(!caps.structured_output);
+    }
+
+    #[test]
+    fn tool_definition_serde_roundtrip() {
+        let def = ToolDefinition {
+            name: "calc".into(),
+            description: "Calculator".into(),
+            parameters: json!({"type":"object","properties":{"expr":{"type":"string"}}}),
+        };
+        let json_str = serde_json::to_string(&def).unwrap();
+        let back: ToolDefinition = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(back.name, "calc");
+        assert_eq!(back.description, "Calculator");
+        assert_eq!(back.parameters["type"], "object");
+    }
+}

@@ -336,3 +336,154 @@ impl Default for AgentBuilder {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builder_missing_name_returns_error() {
+        let result = AgentBuilder::new().model("gpt-4o").build();
+        assert_eq!(result.err(), Some("Agent name is required".into()));
+    }
+
+    #[test]
+    fn builder_missing_model_returns_error() {
+        let result = AgentBuilder::new().name("test").build();
+        assert_eq!(result.err(), Some("Agent model is required".into()));
+    }
+
+    #[test]
+    fn builder_missing_both_returns_name_error_first() {
+        let result = AgentBuilder::new().build();
+        assert_eq!(result.err(), Some("Agent name is required".into()));
+    }
+
+    #[test]
+    fn builder_minimal_build() {
+        let agent = AgentBuilder::new()
+            .name("coder")
+            .model("gpt-4o")
+            .build()
+            .unwrap();
+        assert_eq!(agent.name(), "coder");
+        assert_eq!(agent.model(), "gpt-4o");
+        assert_eq!(agent.instructions(), "");
+        assert!(agent.tools().is_empty());
+        assert!(agent.handoffs().is_empty());
+        assert!(agent.input_guardrails().is_empty());
+        assert!(agent.output_guardrails().is_empty());
+        assert!(agent.hooks().is_none());
+    }
+
+    #[test]
+    fn builder_full_build() {
+        let agent = AgentBuilder::new()
+            .name("assistant")
+            .instructions("You are helpful")
+            .model("claude-sonnet-4-20250514")
+            .build()
+            .unwrap();
+        assert_eq!(agent.name(), "assistant");
+        assert_eq!(agent.instructions(), "You are helpful");
+        assert_eq!(agent.model(), "claude-sonnet-4-20250514");
+    }
+
+    #[test]
+    fn builder_default_is_new() {
+        let b1 = AgentBuilder::new();
+        let b2 = AgentBuilder::default();
+        assert!(b1.name.is_none());
+        assert!(b2.name.is_none());
+    }
+
+    #[test]
+    fn builder_handoff_to_generates_tool_name() {
+        let target = Arc::new(
+            AgentBuilder::new()
+                .name("code_agent")
+                .model("gpt-4o")
+                .build()
+                .unwrap(),
+        );
+        let agent = AgentBuilder::new()
+            .name("router")
+            .model("gpt-4o")
+            .handoff_to(target)
+            .build()
+            .unwrap();
+        let handoffs = agent.handoffs();
+        assert_eq!(handoffs.len(), 1);
+        assert_eq!(handoffs[0].tool_name, "transfer_to_code_agent");
+        assert!(handoffs[0].tool_description.contains("code_agent"));
+    }
+
+    #[test]
+    fn run_input_from_str() {
+        let input: RunInput = "hello".into();
+        match input {
+            RunInput::Text(s) => assert_eq!(s, "hello"),
+            _ => panic!("expected Text"),
+        }
+    }
+
+    #[test]
+    fn run_input_from_string() {
+        let input: RunInput = String::from("world").into();
+        match input {
+            RunInput::Text(s) => assert_eq!(s, "world"),
+            _ => panic!("expected Text"),
+        }
+    }
+
+    #[test]
+    fn run_input_from_messages() {
+        let msgs = vec![Message::user("hi")];
+        let input: RunInput = msgs.into();
+        match input {
+            RunInput::Messages(v) => assert_eq!(v.len(), 1),
+            _ => panic!("expected Messages"),
+        }
+    }
+
+    #[test]
+    fn run_context_new() {
+        let ctx = RunContext::new("sess-1");
+        assert_eq!(ctx.session_id, "sess-1");
+        assert!(ctx.messages.is_empty());
+        assert!(ctx.data.is_empty());
+    }
+
+    #[test]
+    fn handoff_debug_format() {
+        let target = Arc::new(
+            AgentBuilder::new()
+                .name("target_agent")
+                .model("gpt-4o")
+                .build()
+                .unwrap(),
+        );
+        let handoff = Handoff {
+            target,
+            tool_name: "transfer_to_target_agent".into(),
+            tool_description: "Hand off".into(),
+            input_filter: None,
+        };
+        let dbg = format!("{:?}", handoff);
+        assert!(dbg.contains("target_agent"));
+        assert!(dbg.contains("transfer_to_target_agent"));
+    }
+
+    #[test]
+    fn agent_debug_format() {
+        let agent = AgentBuilder::new()
+            .name("dbg_agent")
+            .model("gpt-4o")
+            .build()
+            .unwrap();
+        let dyn_agent: &dyn Agent = &agent;
+        let dbg = format!("{:?}", dyn_agent);
+        assert!(dbg.contains("dbg_agent"));
+        assert!(dbg.contains("gpt-4o"));
+    }
+}

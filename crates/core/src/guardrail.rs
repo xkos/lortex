@@ -70,3 +70,62 @@ impl fmt::Debug for dyn Guardrail {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guardrail_result_pass_serde() {
+        let result = GuardrailResult::Pass;
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"type\":\"pass\""));
+        let back: GuardrailResult = serde_json::from_str(&json).unwrap();
+        assert!(back.is_pass());
+        assert!(!back.is_warn());
+        assert!(!back.is_block());
+    }
+
+    #[test]
+    fn guardrail_result_warn_serde() {
+        let result = GuardrailResult::Warn {
+            message: "caution".into(),
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"type\":\"warn\""));
+        let back: GuardrailResult = serde_json::from_str(&json).unwrap();
+        assert!(back.is_warn());
+        assert!(!back.is_pass());
+        assert!(!back.is_block());
+        match back {
+            GuardrailResult::Warn { message } => assert_eq!(message, "caution"),
+            _ => panic!("expected Warn"),
+        }
+    }
+
+    #[test]
+    fn guardrail_result_block_serde() {
+        let result = GuardrailResult::Block {
+            message: "denied".into(),
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"type\":\"block\""));
+        let back: GuardrailResult = serde_json::from_str(&json).unwrap();
+        assert!(back.is_block());
+        assert!(!back.is_pass());
+        assert!(!back.is_warn());
+    }
+
+    #[test]
+    fn guardrail_mode_default_is_parallel() {
+        let mode = GuardrailMode::default();
+        assert_eq!(mode, GuardrailMode::Parallel);
+    }
+
+    #[test]
+    fn guardrail_mode_equality() {
+        assert_eq!(GuardrailMode::Parallel, GuardrailMode::Parallel);
+        assert_eq!(GuardrailMode::Blocking, GuardrailMode::Blocking);
+        assert_ne!(GuardrailMode::Parallel, GuardrailMode::Blocking);
+    }
+}

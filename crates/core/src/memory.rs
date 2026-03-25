@@ -117,3 +117,56 @@ impl LayeredMemory {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn retrieve_options_default() {
+        let opts = RetrieveOptions::default();
+        assert!(opts.limit.is_none());
+        assert!(opts.offset.is_none());
+        assert!(opts.after.is_none());
+    }
+
+    #[test]
+    fn search_options_default() {
+        let opts = SearchOptions::default();
+        assert_eq!(opts.limit, 10);
+        assert_eq!(opts.min_score, 0.0);
+        assert!(opts.session_id.is_none());
+    }
+
+    #[test]
+    fn memory_entry_serde_roundtrip() {
+        let entry = MemoryEntry {
+            message: Message::user("test"),
+            score: Some(0.95),
+            metadata: {
+                let mut m = std::collections::HashMap::new();
+                m.insert("source".into(), json!("search"));
+                m
+            },
+        };
+        let json_str = serde_json::to_string(&entry).unwrap();
+        let back: MemoryEntry = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(back.score, Some(0.95));
+        assert_eq!(back.metadata["source"], json!("search"));
+        assert_eq!(back.message.text(), Some("test"));
+    }
+
+    #[test]
+    fn memory_entry_without_score() {
+        let entry = MemoryEntry {
+            message: Message::user("hi"),
+            score: None,
+            metadata: std::collections::HashMap::new(),
+        };
+        let json_str = serde_json::to_string(&entry).unwrap();
+        let back: MemoryEntry = serde_json::from_str(&json_str).unwrap();
+        assert!(back.score.is_none());
+        assert!(back.metadata.is_empty());
+    }
+}

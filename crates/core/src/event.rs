@@ -144,3 +144,185 @@ impl EventHandler for TracingEventHandler {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn agent_start_serde_roundtrip() {
+        let event = RunEvent::AgentStart {
+            agent: "coder".into(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"event\":\"agent_start\""));
+        let back: RunEvent = serde_json::from_str(&json).unwrap();
+        match back {
+            RunEvent::AgentStart { agent } => assert_eq!(agent, "coder"),
+            _ => panic!("expected AgentStart"),
+        }
+    }
+
+    #[test]
+    fn llm_end_with_usage_serde() {
+        let event = RunEvent::LlmEnd {
+            model: "gpt-4o".into(),
+            usage: Some(Usage {
+                prompt_tokens: 100,
+                completion_tokens: 50,
+                total_tokens: 150,
+            }),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let back: RunEvent = serde_json::from_str(&json).unwrap();
+        match back {
+            RunEvent::LlmEnd { model, usage } => {
+                assert_eq!(model, "gpt-4o");
+                let u = usage.unwrap();
+                assert_eq!(u.total_tokens, 150);
+            }
+            _ => panic!("expected LlmEnd"),
+        }
+    }
+
+    #[test]
+    fn tool_start_serde() {
+        let event = RunEvent::ToolStart {
+            name: "search".into(),
+            args: json!({"query": "rust"}),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"event\":\"tool_start\""));
+        let back: RunEvent = serde_json::from_str(&json).unwrap();
+        match back {
+            RunEvent::ToolStart { name, args } => {
+                assert_eq!(name, "search");
+                assert_eq!(args, json!({"query": "rust"}));
+            }
+            _ => panic!("expected ToolStart"),
+        }
+    }
+
+    #[test]
+    fn tool_end_serde() {
+        let event = RunEvent::ToolEnd {
+            name: "search".into(),
+            output: json!("found 3 results"),
+            is_error: false,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let back: RunEvent = serde_json::from_str(&json).unwrap();
+        match back {
+            RunEvent::ToolEnd {
+                name,
+                output,
+                is_error,
+            } => {
+                assert_eq!(name, "search");
+                assert_eq!(output, json!("found 3 results"));
+                assert!(!is_error);
+            }
+            _ => panic!("expected ToolEnd"),
+        }
+    }
+
+    #[test]
+    fn handoff_event_serde() {
+        let event = RunEvent::Handoff {
+            from: "router".into(),
+            to: "coder".into(),
+            reason: "code task".into(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let back: RunEvent = serde_json::from_str(&json).unwrap();
+        match back {
+            RunEvent::Handoff { from, to, reason } => {
+                assert_eq!(from, "router");
+                assert_eq!(to, "coder");
+                assert_eq!(reason, "code task");
+            }
+            _ => panic!("expected Handoff"),
+        }
+    }
+
+    #[test]
+    fn guardrail_triggered_serde() {
+        let event = RunEvent::GuardrailTriggered {
+            name: "toxicity".into(),
+            passed: false,
+            message: Some("content flagged".into()),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let back: RunEvent = serde_json::from_str(&json).unwrap();
+        match back {
+            RunEvent::GuardrailTriggered {
+                name,
+                passed,
+                message,
+            } => {
+                assert_eq!(name, "toxicity");
+                assert!(!passed);
+                assert_eq!(message.as_deref(), Some("content flagged"));
+            }
+            _ => panic!("expected GuardrailTriggered"),
+        }
+    }
+
+    #[test]
+    fn error_event_serde() {
+        let event = RunEvent::Error {
+            message: "something failed".into(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let back: RunEvent = serde_json::from_str(&json).unwrap();
+        match back {
+            RunEvent::Error { message } => assert_eq!(message, "something failed"),
+            _ => panic!("expected Error"),
+        }
+    }
+
+    #[test]
+    fn memory_events_serde() {
+        let store = RunEvent::MemoryStore {
+            session_id: "s1".into(),
+            count: 5,
+        };
+        let json = serde_json::to_string(&store).unwrap();
+        let back: RunEvent = serde_json::from_str(&json).unwrap();
+        match back {
+            RunEvent::MemoryStore { session_id, count } => {
+                assert_eq!(session_id, "s1");
+                assert_eq!(count, 5);
+            }
+            _ => panic!("expected MemoryStore"),
+        }
+
+        let retrieve = RunEvent::MemoryRetrieve {
+            session_id: "s1".into(),
+            count: 3,
+        };
+        let json = serde_json::to_string(&retrieve).unwrap();
+        let back: RunEvent = serde_json::from_str(&json).unwrap();
+        match back {
+            RunEvent::MemoryRetrieve { session_id, count } => {
+                assert_eq!(session_id, "s1");
+                assert_eq!(count, 3);
+            }
+            _ => panic!("expected MemoryRetrieve"),
+        }
+    }
+
+    #[test]
+    fn llm_chunk_serde() {
+        let event = RunEvent::LlmChunk {
+            delta: "Hello".into(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let back: RunEvent = serde_json::from_str(&json).unwrap();
+        match back {
+            RunEvent::LlmChunk { delta } => assert_eq!(delta, "Hello"),
+            _ => panic!("expected LlmChunk"),
+        }
+    }
+}

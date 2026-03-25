@@ -141,3 +141,199 @@ impl Message {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn role_serde_roundtrip() {
+        for (role, expected) in [
+            (Role::System, "\"system\""),
+            (Role::User, "\"user\""),
+            (Role::Assistant, "\"assistant\""),
+            (Role::Tool, "\"tool\""),
+        ] {
+            let json = serde_json::to_string(&role).unwrap();
+            assert_eq!(json, expected);
+            let back: Role = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, role);
+        }
+    }
+
+    #[test]
+    fn content_part_text_serde() {
+        let part = ContentPart::Text {
+            text: "hello".into(),
+        };
+        let json = serde_json::to_string(&part).unwrap();
+        assert!(json.contains("\"type\":\"text\""));
+        let back: ContentPart = serde_json::from_str(&json).unwrap();
+        match back {
+            ContentPart::Text { text } => assert_eq!(text, "hello"),
+            _ => panic!("expected Text variant"),
+        }
+    }
+
+    #[test]
+    fn content_part_image_serde() {
+        let part = ContentPart::Image {
+            url: "https://example.com/img.png".into(),
+            media_type: Some("image/png".into()),
+        };
+        let json = serde_json::to_string(&part).unwrap();
+        let back: ContentPart = serde_json::from_str(&json).unwrap();
+        match back {
+            ContentPart::Image { url, media_type } => {
+                assert_eq!(url, "https://example.com/img.png");
+                assert_eq!(media_type.as_deref(), Some("image/png"));
+            }
+            _ => panic!("expected Image variant"),
+        }
+    }
+
+    #[test]
+    fn content_part_tool_call_serde() {
+        let part = ContentPart::ToolCall {
+            id: "call_1".into(),
+            name: "search".into(),
+            arguments: json!({"query": "rust"}),
+        };
+        let json = serde_json::to_string(&part).unwrap();
+        assert!(json.contains("\"type\":\"tool_call\""));
+        let back: ContentPart = serde_json::from_str(&json).unwrap();
+        match back {
+            ContentPart::ToolCall {
+                id,
+                name,
+                arguments,
+            } => {
+                assert_eq!(id, "call_1");
+                assert_eq!(name, "search");
+                assert_eq!(arguments, json!({"query": "rust"}));
+            }
+            _ => panic!("expected ToolCall variant"),
+        }
+    }
+
+    #[test]
+    fn content_part_tool_result_serde() {
+        let part = ContentPart::ToolResult {
+            call_id: "call_1".into(),
+            content: json!({"result": 42}),
+            is_error: false,
+        };
+        let json = serde_json::to_string(&part).unwrap();
+        let back: ContentPart = serde_json::from_str(&json).unwrap();
+        match back {
+            ContentPart::ToolResult {
+                call_id,
+                content,
+                is_error,
+            } => {
+                assert_eq!(call_id, "call_1");
+                assert_eq!(content, json!({"result": 42}));
+                assert!(!is_error);
+            }
+            _ => panic!("expected ToolResult variant"),
+        }
+    }
+
+    #[test]
+    fn message_serde_roundtrip() {
+        let msg = Message::user("hello world");
+        let json = serde_json::to_string(&msg).unwrap();
+        let back: Message = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.role, Role::User);
+        assert_eq!(back.text(), Some("hello world"));
+        assert_eq!(back.id, msg.id);
+    }
+
+    #[test]
+    fn message_convenience_constructors() {
+        let sys = Message::system("you are helpful");
+        assert_eq!(sys.role, Role::System);
+        assert_eq!(sys.text(), Some("you are helpful"));
+
+        let user = Message::user("hi");
+        assert_eq!(user.role, Role::User);
+
+        let asst = Message::assistant("hello");
+        assert_eq!(asst.role, Role::Assistant);
+
+        let tool = Message::tool_result("call_1", json!("done"), false);
+        assert_eq!(tool.role, Role::Tool);
+        match &tool.content[0] {
+            ContentPart::ToolResult {
+                call_id, is_error, ..
+            } => {
+                assert_eq!(call_id, "call_1");
+                assert!(!is_error);
+            }
+            _ => panic!("expected ToolResult"),
+        }
+    }
+
+    #[test]
+    fn message_empty_content() {
+        let msg = Message {
+            id: "test".into(),
+            role: Role::User,
+            content: vec![],
+            metadata: HashMap::new(),
+            timestamp: Utc::now(),
+        };
+        assert_eq!(msg.text(), None);
+        assert!(msg.tool_calls().is_empty());
+        let json = serde_json::to_string(&msg).unwrap();
+        let back: Message = serde_json::from_str(&json).unwrap();
+        assert!(back.content.is_empty());
+    }
+
+    #[test]
+    fn message_multi_part() {
+        let msg = Message {
+            id: "multi".into(),
+            role: Role::Assistant,
+            content: vec![
+                ContentPart::Text {
+                    text: "Let me search".into(),
+                },
+                ContentPart::ToolCall {
+                    id: "c1".into(),
+                    name: "search".into(),
+                    arguments: json!({"q": "test"}),
+                },
+                ContentPart::ToolCall {
+                    id: "c2".into(),
+                    name: "read".into(),
+                    arguments: json!({"path": "/tmp"}),
+                },
+            ],
+            metadata: HashMap::new(),
+            timestamp: Utc::now(),
+        };
+        assert_eq!(msg.text(), Some("Let me search"));
+        let calls = msg.tool_calls();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].1, "search");
+        assert_eq!(calls[1].1, "read");
+    }
+
+    #[test]
+    fn message_with_metadata() {
+        let msg = Message::user("test")
+            .with_metadata("source", json!("api"))
+            .with_metadata("priority", json!(1));
+        assert_eq!(msg.metadata.len(), 2);
+        assert_eq!(msg.metadata["source"], json!("api"));
+    }
+
+    #[test]
+    fn message_metadata_default_on_deserialize() {
+        let json = r#"{"id":"x","role":"user","content":[{"type":"text","text":"hi"}],"timestamp":"2025-01-01T00:00:00Z"}"#;
+        let msg: Message = serde_json::from_str(json).unwrap();
+        assert!(msg.metadata.is_empty());
+    }
+}

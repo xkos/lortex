@@ -184,3 +184,110 @@ impl Tool for FnTool {
         (self.func)(args).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn tool_output_text() {
+        let out = ToolOutput::text("hello");
+        assert_eq!(out.content, json!("hello"));
+        assert!(!out.is_error);
+    }
+
+    #[test]
+    fn tool_output_json() {
+        let out = ToolOutput::json(json!({"count": 3}));
+        assert_eq!(out.content, json!({"count": 3}));
+        assert!(!out.is_error);
+    }
+
+    #[test]
+    fn tool_output_error() {
+        let out = ToolOutput::error("something broke");
+        assert_eq!(out.content, json!("something broke"));
+        assert!(out.is_error);
+    }
+
+    #[test]
+    fn tool_output_serde_roundtrip() {
+        let out = ToolOutput::text("result");
+        let json_str = serde_json::to_string(&out).unwrap();
+        let back: ToolOutput = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(back.content, json!("result"));
+        assert!(!back.is_error);
+    }
+
+    #[test]
+    fn tool_example_serde_roundtrip() {
+        let ex = ToolExample {
+            description: "greet someone".into(),
+            input: json!({"name": "Alice"}),
+            output: json!("Hello, Alice!"),
+        };
+        let json_str = serde_json::to_string(&ex).unwrap();
+        let back: ToolExample = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(back.description, "greet someone");
+        assert_eq!(back.input, json!({"name": "Alice"}));
+    }
+
+    #[tokio::test]
+    async fn fn_tool_creation_and_execute() {
+        let tool = FnTool::new(
+            "greet",
+            "Greet by name",
+            json!({"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}),
+            |args| async move {
+                let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("world");
+                Ok(ToolOutput::text(format!("Hello, {}!", name)))
+            },
+        );
+        assert_eq!(tool.name(), "greet");
+        assert_eq!(tool.description(), "Greet by name");
+        assert!(!tool.requires_approval());
+        assert!(tool.examples().is_empty());
+
+        let schema = tool.parameters_schema();
+        assert_eq!(schema["type"], "object");
+        assert!(schema["properties"]["name"].is_object());
+
+        let ctx = ToolContext {
+            session_id: "s1".into(),
+            agent_name: "test".into(),
+            messages: vec![],
+        };
+        let result = tool.execute(json!({"name": "Rust"}), &ctx).await.unwrap();
+        assert_eq!(result.content, json!("Hello, Rust!"));
+        assert!(!result.is_error);
+    }
+
+    #[tokio::test]
+    async fn fn_tool_returns_error() {
+        let tool = FnTool::new("fail", "Always fails", json!({}), |_args| async move {
+            Err(ToolError::ExecutionFailed("boom".into()))
+        });
+        let ctx = ToolContext {
+            session_id: "s1".into(),
+            agent_name: "test".into(),
+            messages: vec![],
+        };
+        let result = tool.execute(json!({}), &ctx).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ToolError::ExecutionFailed(msg) => assert_eq!(msg, "boom"),
+            other => panic!("expected ExecutionFailed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn tool_debug_format() {
+        let tool = FnTool::new("dbg_tool", "A debug tool", json!({}), |_| async move {
+            Ok(ToolOutput::text("ok"))
+        });
+        let dyn_tool: &dyn Tool = &tool;
+        let dbg = format!("{:?}", dyn_tool);
+        assert!(dbg.contains("dbg_tool"));
+    }
+}
