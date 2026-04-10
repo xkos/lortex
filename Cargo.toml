@@ -62,3 +62,9 @@ lortex-swarm = { path = "crates/swarm" }
 lortex-guardrails = { path = "crates/guardrails" }
 lortex-memory = { path = "crates/memory" }
 lortex-macros = { path = "crates/macros" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+serde_json = "1"
+futures = "0.3"
