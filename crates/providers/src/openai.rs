@@ -315,6 +315,7 @@ impl Provider for OpenAIProvider {
             "messages": Self::convert_messages(&request.messages),
             "temperature": request.temperature,
             "stream": true,
+            "stream_options": {"include_usage": true},
         });
 
         if let Some(max_tokens) = request.max_tokens {
@@ -327,81 +328,138 @@ impl Provider for OpenAIProvider {
 
         let client = self.client.clone();
 
-        Box::pin(futures::stream::unfold(
-            Some((client, url, api_key, org, body)),
-            |state| async move {
-                let (client, url, api_key, org, body) = state?;
+        Box::pin(async_stream::try_stream! {
+            let mut req = client
+                .post(&url)
+                .header("Authorization", format!("Bearer {}", api_key))
+                .header("Content-Type", "application/json");
 
-                let mut req = client
-                    .post(&url)
-                    .header("Authorization", format!("Bearer {}", api_key))
-                    .header("Content-Type", "application/json");
+            if let Some(org) = &org {
+                req = req.header("OpenAI-Organization", org.as_str());
+            }
 
-                if let Some(org) = &org {
-                    req = req.header("OpenAI-Organization", org.as_str());
-                }
+            let resp = req
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| ProviderError::Network(e.to_string()))?;
 
-                let resp = match req.json(&body).send().await {
-                    Ok(r) => r,
-                    Err(e) => {
-                        return Some((
-                            Err(ProviderError::Network(e.to_string())),
-                            None,
-                        ));
+            let status = resp.status().as_u16();
+            if status >= 400 {
+                let text = resp.text().await.unwrap_or_default();
+                return Err(ProviderError::Api { status, message: text })?;
+            }
+
+            let mut byte_stream = resp.bytes_stream();
+            let mut buffer = String::new();
+
+            use futures::StreamExt;
+            while let Some(chunk) = byte_stream.next().await {
+                let chunk = chunk.map_err(|e| ProviderError::Network(e.to_string()))?;
+                buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+                // Process complete SSE lines from buffer
+                while let Some(newline_pos) = buffer.find('\n') {
+                    let line = buffer[..newline_pos].trim_end_matches('\r').to_string();
+                    buffer = buffer[newline_pos + 1..].to_string();
+
+                    if line.is_empty() {
+                        continue;
                     }
-                };
 
-                // For SSE streaming, we'd parse the event stream.
-                // This is a simplified implementation that returns a Done event.
-                let text = match resp.text().await {
-                    Ok(t) => t,
-                    Err(e) => {
-                        return Some((
-                            Err(ProviderError::Network(e.to_string())),
-                            None,
-                        ));
+                    let data = match line.strip_prefix("data: ") {
+                        Some(d) => d,
+                        None => continue,
+                    };
+
+                    if data == "[DONE]" {
+                        return;
                     }
-                };
 
-                // Parse SSE events
-                let mut full_content = String::new();
-                for line in text.lines() {
-                    if let Some(data) = line.strip_prefix("data: ") {
-                        if data == "[DONE]" {
-                            break;
+                    let chunk_json: Value = match serde_json::from_str(data) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+
+                    // Parse content delta
+                    if let Some(delta) = chunk_json
+                        .get("choices")
+                        .and_then(|c| c.get(0))
+                        .and_then(|c| c.get("delta"))
+                        .and_then(|d| d.get("content"))
+                        .and_then(|c| c.as_str())
+                    {
+                        if !delta.is_empty() {
+                            yield StreamEvent::ContentDelta { delta: delta.to_string() };
                         }
-                        if let Ok(chunk) = serde_json::from_str::<Value>(data) {
-                            if let Some(delta) = chunk
-                                .get("choices")
-                                .and_then(|c| c.get(0))
-                                .and_then(|c| c.get("delta"))
-                                .and_then(|d| d.get("content"))
-                                .and_then(|c| c.as_str())
+                    }
+
+                    // Parse tool call deltas
+                    if let Some(tool_calls) = chunk_json
+                        .get("choices")
+                        .and_then(|c| c.get(0))
+                        .and_then(|c| c.get("delta"))
+                        .and_then(|d| d.get("tool_calls"))
+                        .and_then(|tc| tc.as_array())
+                    {
+                        for tc in tool_calls {
+                            let index = tc.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
+                            if let Some(id) = tc.get("id").and_then(|v| v.as_str()) {
+                                let name = tc.get("function")
+                                    .and_then(|f| f.get("name"))
+                                    .and_then(|n| n.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                yield StreamEvent::ToolCallStart {
+                                    index,
+                                    id: id.to_string(),
+                                    name,
+                                };
+                            }
+                            if let Some(args) = tc.get("function")
+                                .and_then(|f| f.get("arguments"))
+                                .and_then(|a| a.as_str())
                             {
-                                full_content.push_str(delta);
+                                if !args.is_empty() {
+                                    yield StreamEvent::ToolCallDelta {
+                                        index,
+                                        arguments_delta: args.to_string(),
+                                    };
+                                }
                             }
                         }
                     }
-                }
 
-                if !full_content.is_empty() {
-                    Some((
-                        Ok(StreamEvent::ContentDelta {
-                            delta: full_content,
-                        }),
-                        None,
-                    ))
-                } else {
-                    Some((
-                        Ok(StreamEvent::Done {
-                            usage: None,
-                            finish_reason: Some(FinishReason::Stop),
-                        }),
-                        None,
-                    ))
+                    // Parse finish reason
+                    if let Some(finish) = chunk_json
+                        .get("choices")
+                        .and_then(|c| c.get(0))
+                        .and_then(|c| c.get("finish_reason"))
+                        .and_then(|f| f.as_str())
+                    {
+                        let finish_reason = match finish {
+                            "stop" => FinishReason::Stop,
+                            "tool_calls" => FinishReason::ToolCalls,
+                            "length" => FinishReason::Length,
+                            "content_filter" => FinishReason::ContentFilter,
+                            _ => FinishReason::Stop,
+                        };
+
+                        // Check for usage in the same or subsequent chunk
+                        let usage = chunk_json.get("usage").map(|u| Usage {
+                            prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                            completion_tokens: u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                            total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                        });
+
+                        yield StreamEvent::Done {
+                            usage,
+                            finish_reason: Some(finish_reason),
+                        };
+                    }
                 }
-            },
-        ))
+            }
+        })
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
