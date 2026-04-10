@@ -9,6 +9,7 @@
 
 pub mod cost;
 pub mod registry;
+pub mod router;
 pub mod strategy;
 
 pub use registry::{
@@ -18,3 +19,4 @@ pub use strategy::{
     FixedRouter, ModelSelection, RoutingError, RoutingRequest, RoutingStrategy,
 };
 pub use cost::{BudgetStatus, CostRecord, CostTracker};
+pub use router::{Router, RouterBuilder};
