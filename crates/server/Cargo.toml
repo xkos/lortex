@@ -1,0 +1,24 @@
+[package]
+name = "lortex-server"
+version.workspace = true
+edition.workspace = true
+description = "Lortex Proxy 服务：LLM 中转代理的 HTTP 服务层"
+
+[dependencies]
+lortex-core = { path = "../core" }
+lortex-router = { path = "../router" }
+lortex-providers = { path = "../providers" }
+
+tokio.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+
+axum = { version = "0.8", features = ["macros"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
