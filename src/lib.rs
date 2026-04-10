@@ -46,6 +46,10 @@ pub use lortex_guardrails as guardrails;
 #[cfg(feature = "memory")]
 pub use lortex_memory as memory;
 
+/// 异构模型路由
+#[cfg(feature = "router")]
+pub use lortex_router as router;
+
 // 常用类型的便捷 re-export
 pub use lortex_core::agent::{Agent, SimpleAgent, AgentBuilder};
 pub use lortex_core::message::{Message, Role, ContentPart};
@@ -90,6 +94,10 @@ pub mod prelude {
     // 记忆
     #[cfg(feature = "memory")]
     pub use lortex_memory::{InMemoryStore, SlidingWindowMemory};
+
+    // 路由
+    #[cfg(feature = "router")]
+    pub use lortex_router::{Router, RouterBuilder, FixedRouter, ModelRegistry, ModelProfile};
 
     // 常用外部类型
     pub use std::sync::Arc;
