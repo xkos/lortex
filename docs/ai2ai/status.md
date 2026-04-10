@@ -7,12 +7,12 @@
 
 ## 当前阶段
 
-Phase 1 — 基础能力（核心抽象、执行引擎、基础工具链）
+Phase 1 完成，Phase 2 进行中（异构模型编排）
 
 ## 当前迭代
 
-- 当前活跃：001-core-tests（待验收）
-- 分支：iter/001-core-tests
+- 当前活跃：002-router-core（待验收）
+- 分支：iter/002-router-core
 
 ---
 
@@ -29,28 +29,30 @@ Phase 1 — 基础能力（核心抽象、执行引擎、基础工具链）
 | guardrails | ✅ 可用 | 35 tests |
 | memory | ✅ 可用 | 24 tests |
 | macros | ✅ 可用 | 0 tests |
-| router | ❌ 空壳 | 0 tests |
+| router | ✅ 可用 | 43 tests |
 
 ---
 
 ## 端到端联通状态
 
-✅ mock Provider → Runner → Agent + Tool + Guardrails 完整链路已验证（6 个 e2e 测试）
+- ✅ mock Provider → Runner → Agent + Tool + Guardrails（6 tests）
+- ✅ Router → Runner → Agent + Tool + CostTracker（3 tests）
 
 ---
 
 ## 已知问题 / 技术债
 
 - Provider streaming 是伪流式（先拉完整 body 再解析）
+- Router streaming 未实现（返回空 stream）
 - MCP stdio transport 未实现
 - HttpTool 无测试
 - providers/protocols/swarm/macros 无测试
-- router crate 为空壳（Phase 2）
 
 ---
 
 ## 下一步建议
 
-1. 补充 providers/swarm 测试（需 mock）
-2. 修复 Provider 真流式 SSE 解析
-3. 启动 Phase 2 — router crate 实现
+1. 实现 FallbackRouter（主模型 + 备选模型链）
+2. 实现 AutoRouter（按任务特征自动匹配）
+3. 修复 Provider 真流式 SSE 解析
+4. 补充 providers/swarm 测试
