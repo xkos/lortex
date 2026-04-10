@@ -8,7 +8,11 @@
 //! - [`Router`] — 实现 `Provider` trait 的智能路由器
 
 pub mod registry;
+pub mod strategy;
 
 pub use registry::{
     Capabilities, CostProfile, Modality, ModelProfile, ModelRegistry,
+};
+pub use strategy::{
+    FixedRouter, ModelSelection, RoutingError, RoutingRequest, RoutingStrategy,
 };
