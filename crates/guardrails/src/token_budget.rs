@@ -88,3 +88,112 @@ impl Guardrail for TokenBudget {
         GuardrailResult::Pass
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lortex_core::guardrail::Guardrail;
+    use lortex_core::message::Message;
+
+    #[test]
+    fn name_returns_token_budget() {
+        let budget = TokenBudget::new(1000);
+        assert_eq!(budget.name(), "token_budget");
+    }
+
+    #[test]
+    fn remaining_starts_at_max() {
+        let budget = TokenBudget::new(1000);
+        assert_eq!(budget.remaining(), 1000);
+    }
+
+    #[tokio::test]
+    async fn passes_under_budget() {
+        let budget = TokenBudget::new(1000);
+        let result = budget.check_input(&[Message::user("short")]).await;
+        assert!(result.is_pass());
+        assert!(budget.remaining() < 1000);
+    }
+
+    #[tokio::test]
+    async fn warns_at_80_percent() {
+        // 100 token budget, ~4 chars per token
+        // 324 chars = ceil(324/4) = 81 tokens = 81% > 80%
+        let budget = TokenBudget::new(100);
+        let long_text = "a".repeat(324);
+        let result = budget.check_input(&[Message::user(&long_text)]).await;
+        assert!(result.is_warn());
+    }
+
+    #[tokio::test]
+    async fn blocks_over_budget() {
+        let budget = TokenBudget::new(10);
+        // 100 chars = ~25 tokens, well over 10
+        let long_text = "a".repeat(100);
+        let result = budget.check_input(&[Message::user(&long_text)]).await;
+        assert!(result.is_block());
+    }
+
+    #[tokio::test]
+    async fn accumulates_across_calls() {
+        let budget = TokenBudget::new(100);
+        // Each call adds some tokens
+        budget
+            .check_input(&[Message::user(&"a".repeat(200))])
+            .await; // ~50 tokens
+        budget
+            .check_input(&[Message::user(&"b".repeat(200))])
+            .await; // ~50 more
+        // Now at ~100 tokens, next should block
+        let result = budget
+            .check_input(&[Message::user(&"c".repeat(100))])
+            .await;
+        assert!(result.is_block());
+    }
+
+    #[tokio::test]
+    async fn check_output_tracks_tokens() {
+        let budget = TokenBudget::new(1000);
+        let initial = budget.remaining();
+        budget
+            .check_output(&Message::assistant("some output text"))
+            .await;
+        assert!(budget.remaining() < initial);
+    }
+
+    #[tokio::test]
+    async fn check_output_always_passes() {
+        let budget = TokenBudget::new(1);
+        // Even when over budget, check_output returns Pass
+        budget
+            .check_input(&[Message::user(&"a".repeat(100))])
+            .await;
+        let result = budget
+            .check_output(&Message::assistant("more text"))
+            .await;
+        assert!(result.is_pass());
+    }
+
+    #[test]
+    fn reset_clears_consumed() {
+        let budget = TokenBudget::new(1000);
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(budget.check_input(&[Message::user(&"a".repeat(400))]));
+        assert!(budget.remaining() < 1000);
+        budget.reset();
+        assert_eq!(budget.remaining(), 1000);
+    }
+
+    #[tokio::test]
+    async fn multiple_messages_in_single_check() {
+        let budget = TokenBudget::new(1000);
+        let msgs = vec![
+            Message::user(&"a".repeat(100)),
+            Message::user(&"b".repeat(100)),
+        ];
+        budget.check_input(&msgs).await;
+        // 100 chars = ceil(100/4) = 25 tokens each, 50 total
+        // remaining = 1000 - 50 = 950
+        assert!(budget.remaining() <= 950);
+    }
+}
