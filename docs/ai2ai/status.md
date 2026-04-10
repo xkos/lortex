@@ -11,8 +11,8 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 ## 当前迭代
 
-- 当前活跃：003a-proxy-store（待验收）
-- 分支：iter/003a-proxy-store
+- 当前活跃：003b-proxy-handler（待验收）
+- 分支：iter/003b-proxy-handler
 
 ---
 
@@ -30,7 +30,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 | memory | ✅ 可用 | 24 tests |
 | macros | ✅ 可用 | 0 tests |
 | router | ✅ 可用 | 43 tests |
-| server | 🔨 部分 | 20 tests（存储 + Admin API，代理核心待 003b） |
+| server | 🔨 部分 | 60 tests（存储 + Admin + 协议 + 鉴权 + proxy handler，streaming 待 003c） |
 
 ---
 
@@ -39,7 +39,8 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 - ✅ mock Provider → Runner → Agent + Tool + Guardrails（6 tests）
 - ✅ Router → Runner → Agent + Tool + CostTracker（3 tests）
 - ✅ Admin API → SQLite Store → CRUD（5 tests）
-- ⏳ Proxy 代理核心（003b）
+- ✅ Proxy API → 鉴权 → 模型解析 → Provider 构建（10 tests）
+- ⏳ Streaming SSE + Anthropic 入口（003c）
 
 ---
 
@@ -55,6 +56,5 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 ## 下一步建议
 
-1. 003b：Proxy 代理核心（/v1/chat/completions、/v1/messages、协议转换、credit 扣减）
-2. 修复 providers 真实 SSE streaming
-3. 004：FallbackRouter + 多模态适配
+1. 003c：Streaming SSE + Anthropic /v1/messages 入口 + providers 真实 SSE 修复
+2. 004：FallbackRouter + 多模态适配
