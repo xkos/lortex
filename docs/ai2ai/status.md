@@ -7,12 +7,12 @@
 
 ## 当前阶段
 
-Phase 1 完成，Phase 2 进行中（异构模型编排）
+Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 ## 当前迭代
 
-- 当前活跃：002-router-core（待验收）
-- 分支：iter/002-router-core
+- 当前活跃：003a-proxy-store（待验收）
+- 分支：iter/003a-proxy-store
 
 ---
 
@@ -30,6 +30,7 @@ Phase 1 完成，Phase 2 进行中（异构模型编排）
 | memory | ✅ 可用 | 24 tests |
 | macros | ✅ 可用 | 0 tests |
 | router | ✅ 可用 | 43 tests |
+| server | 🔨 部分 | 20 tests（存储 + Admin API，代理核心待 003b） |
 
 ---
 
@@ -37,6 +38,8 @@ Phase 1 完成，Phase 2 进行中（异构模型编排）
 
 - ✅ mock Provider → Runner → Agent + Tool + Guardrails（6 tests）
 - ✅ Router → Runner → Agent + Tool + CostTracker（3 tests）
+- ✅ Admin API → SQLite Store → CRUD（5 tests）
+- ⏳ Proxy 代理核心（003b）
 
 ---
 
@@ -52,7 +55,6 @@ Phase 1 完成，Phase 2 进行中（异构模型编排）
 
 ## 下一步建议
 
-1. 实现 FallbackRouter（主模型 + 备选模型链）
-2. 实现 AutoRouter（按任务特征自动匹配）
-3. 修复 Provider 真流式 SSE 解析
-4. 补充 providers/swarm 测试
+1. 003b：Proxy 代理核心（/v1/chat/completions、/v1/messages、协议转换、credit 扣减）
+2. 修复 providers 真实 SSE streaming
+3. 004：FallbackRouter + 多模态适配
