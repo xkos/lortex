@@ -10,6 +10,7 @@ pub mod config;
 pub mod handlers;
 pub mod middleware;
 pub mod models;
+pub mod proto;
 pub mod routes;
 pub mod state;
 pub mod store;
