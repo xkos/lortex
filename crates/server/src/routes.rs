@@ -6,8 +6,9 @@ use axum::{
     Router,
 };
 
-use crate::handlers::admin;
+use crate::handlers::{admin, chat, models};
 use crate::middleware::auth::{admin_auth, AdminKey};
+use crate::middleware::proxy_auth::proxy_auth;
 use crate::state::AppState;
 
 /// 构建 admin API 路由
@@ -25,8 +26,18 @@ pub fn admin_routes(state: AppState, admin_key: String) -> Router {
         .with_state(state)
 }
 
+/// 构建 proxy API 路由（需要 proxy API key 鉴权）
+pub fn proxy_routes(state: AppState) -> Router {
+    Router::new()
+        .route("/v1/chat/completions", post(chat::chat_completions))
+        .route("/v1/models", get(models::list_models))
+        .layer(middleware::from_fn(proxy_auth))
+        .layer(axum::Extension(state))
+}
+
 /// 构建完整的应用路由
 pub fn app_router(state: AppState, admin_key: String) -> Router {
     Router::new()
-        .nest("/admin/v1", admin_routes(state, admin_key))
+        .nest("/admin/v1", admin_routes(state.clone(), admin_key))
+        .merge(proxy_routes(state))
 }
