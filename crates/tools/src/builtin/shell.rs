@@ -126,3 +126,89 @@ impl Tool for ShellTool {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lortex_core::tool::Tool;
+    use serde_json::json;
+
+    fn test_ctx() -> ToolContext {
+        ToolContext {
+            session_id: "test".into(),
+            agent_name: "test".into(),
+            messages: vec![],
+        }
+    }
+
+    #[test]
+    fn shell_tool_metadata() {
+        let tool = ShellTool::new();
+        assert_eq!(tool.name(), "shell");
+        assert!(tool.requires_approval());
+        let schema = tool.parameters_schema();
+        assert_eq!(schema["required"][0], "command");
+    }
+
+    #[test]
+    fn default_impl() {
+        let tool = ShellTool::default();
+        assert_eq!(tool.timeout_secs, 30);
+        assert!(tool.working_dir.is_none());
+    }
+
+    #[test]
+    fn builder_methods() {
+        let tool = ShellTool::new().with_working_dir("/tmp").with_timeout(60);
+        assert_eq!(tool.working_dir.as_deref(), Some("/tmp"));
+        assert_eq!(tool.timeout_secs, 60);
+    }
+
+    #[tokio::test]
+    async fn executes_simple_command() {
+        let tool = ShellTool::new();
+        let result = tool
+            .execute(json!({"command": "echo hello"}), &test_ctx())
+            .await
+            .unwrap();
+        assert!(!result.is_error);
+        assert!(result.content.as_str().unwrap().contains("hello"));
+    }
+
+    #[tokio::test]
+    async fn captures_exit_code_on_failure() {
+        let tool = ShellTool::new();
+        let result = tool
+            .execute(json!({"command": "false"}), &test_ctx())
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.as_str().unwrap().contains("Exit code:"));
+    }
+
+    #[tokio::test]
+    async fn missing_command_arg() {
+        let tool = ShellTool::new();
+        let result = tool.execute(json!({}), &test_ctx()).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn respects_working_dir_from_args() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = ShellTool::new();
+        let result = tool
+            .execute(
+                json!({"command": "pwd", "working_dir": dir.path().to_str().unwrap()}),
+                &test_ctx(),
+            )
+            .await
+            .unwrap();
+        assert!(!result.is_error);
+        // The output should contain the temp dir path
+        let output = result.content.as_str().unwrap();
+        // Resolve symlinks for macOS /private/var vs /var
+        let canonical = dir.path().canonicalize().unwrap();
+        assert!(output.contains(canonical.to_str().unwrap()));
+    }
+}

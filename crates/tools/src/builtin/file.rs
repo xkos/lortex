@@ -119,3 +119,116 @@ impl Tool for WriteFileTool {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lortex_core::tool::Tool;
+    use serde_json::json;
+    use std::io::Write;
+
+    fn test_ctx() -> ToolContext {
+        ToolContext {
+            session_id: "test".into(),
+            agent_name: "test".into(),
+            messages: vec![],
+        }
+    }
+
+    // --- ReadFileTool ---
+
+    #[test]
+    fn read_file_tool_metadata() {
+        let tool = ReadFileTool;
+        assert_eq!(tool.name(), "read_file");
+        assert!(!tool.requires_approval());
+        let schema = tool.parameters_schema();
+        assert_eq!(schema["required"][0], "path");
+    }
+
+    #[tokio::test]
+    async fn read_file_success() {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        write!(tmp, "hello from file").unwrap();
+
+        let result = ReadFileTool
+            .execute(json!({"path": tmp.path().to_str().unwrap()}), &test_ctx())
+            .await
+            .unwrap();
+        assert_eq!(result.content.as_str().unwrap(), "hello from file");
+        assert!(!result.is_error);
+    }
+
+    #[tokio::test]
+    async fn read_file_missing_path_arg() {
+        let result = ReadFileTool.execute(json!({}), &test_ctx()).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn read_file_nonexistent() {
+        let result = ReadFileTool
+            .execute(json!({"path": "/tmp/lortex_nonexistent_file_xyz"}), &test_ctx())
+            .await;
+        assert!(result.is_err());
+    }
+
+    // --- WriteFileTool ---
+
+    #[test]
+    fn write_file_tool_metadata() {
+        let tool = WriteFileTool;
+        assert_eq!(tool.name(), "write_file");
+        assert!(tool.requires_approval());
+        let schema = tool.parameters_schema();
+        assert!(schema["required"].as_array().unwrap().contains(&json!("path")));
+        assert!(schema["required"].as_array().unwrap().contains(&json!("content")));
+    }
+
+    #[tokio::test]
+    async fn write_file_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.txt");
+
+        let result = WriteFileTool
+            .execute(
+                json!({"path": path.to_str().unwrap(), "content": "written content"}),
+                &test_ctx(),
+            )
+            .await
+            .unwrap();
+        assert!(!result.is_error);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "written content");
+    }
+
+    #[tokio::test]
+    async fn write_file_creates_parent_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sub").join("deep").join("file.txt");
+
+        let result = WriteFileTool
+            .execute(
+                json!({"path": path.to_str().unwrap(), "content": "nested"}),
+                &test_ctx(),
+            )
+            .await
+            .unwrap();
+        assert!(!result.is_error);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "nested");
+    }
+
+    #[tokio::test]
+    async fn write_file_missing_args() {
+        let r1 = WriteFileTool.execute(json!({}), &test_ctx()).await;
+        assert!(r1.is_err());
+
+        let r2 = WriteFileTool
+            .execute(json!({"path": "/tmp/x"}), &test_ctx())
+            .await;
+        assert!(r2.is_err());
+    }
+}

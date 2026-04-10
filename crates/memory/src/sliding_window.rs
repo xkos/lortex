@@ -105,3 +105,162 @@ impl Memory for SlidingWindowMemory {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lortex_core::memory::{RetrieveOptions, SearchOptions};
+    use lortex_core::message::Message;
+
+    #[tokio::test]
+    async fn store_within_window() {
+        let mem = SlidingWindowMemory::new(5);
+        let msgs: Vec<Message> = (0..3).map(|i| Message::user(format!("msg{i}"))).collect();
+        mem.store_messages("s1", &msgs).await.unwrap();
+
+        let retrieved = mem
+            .get_messages("s1", RetrieveOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(retrieved.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn trims_to_window_size() {
+        let mem = SlidingWindowMemory::new(3);
+        let msgs: Vec<Message> = (0..5).map(|i| Message::user(format!("msg{i}"))).collect();
+        mem.store_messages("s1", &msgs).await.unwrap();
+
+        let retrieved = mem
+            .get_messages("s1", RetrieveOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(retrieved.len(), 3);
+        // Should keep the last 3 messages
+        assert_eq!(retrieved[0].text(), Some("msg2"));
+        assert_eq!(retrieved[1].text(), Some("msg3"));
+        assert_eq!(retrieved[2].text(), Some("msg4"));
+    }
+
+    #[tokio::test]
+    async fn incremental_store_trims() {
+        let mem = SlidingWindowMemory::new(3);
+        mem.store_messages("s1", &[Message::user("a"), Message::user("b")])
+            .await
+            .unwrap();
+        mem.store_messages("s1", &[Message::user("c"), Message::user("d")])
+            .await
+            .unwrap();
+
+        let retrieved = mem
+            .get_messages("s1", RetrieveOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(retrieved.len(), 3);
+        assert_eq!(retrieved[0].text(), Some("b"));
+        assert_eq!(retrieved[1].text(), Some("c"));
+        assert_eq!(retrieved[2].text(), Some("d"));
+    }
+
+    #[tokio::test]
+    async fn get_messages_with_limit_and_offset() {
+        let mem = SlidingWindowMemory::new(10);
+        let msgs: Vec<Message> = (0..5).map(|i| Message::user(format!("msg{i}"))).collect();
+        mem.store_messages("s1", &msgs).await.unwrap();
+
+        let opts = RetrieveOptions {
+            limit: Some(2),
+            offset: Some(1),
+            after: None,
+        };
+        let retrieved = mem.get_messages("s1", opts).await.unwrap();
+        assert_eq!(retrieved.len(), 2);
+        assert_eq!(retrieved[0].text(), Some("msg1"));
+        assert_eq!(retrieved[1].text(), Some("msg2"));
+    }
+
+    #[tokio::test]
+    async fn search_within_window() {
+        let mem = SlidingWindowMemory::new(3);
+        let msgs: Vec<Message> = (0..5)
+            .map(|i| Message::user(format!("item {i}")))
+            .collect();
+        mem.store_messages("s1", &msgs).await.unwrap();
+
+        // Only the last 3 messages should be searchable
+        let results = mem.search("item", SearchOptions::default()).await.unwrap();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn search_case_insensitive() {
+        let mem = SlidingWindowMemory::new(10);
+        mem.store_messages("s1", &[Message::user("Hello WORLD")])
+            .await
+            .unwrap();
+
+        let results = mem
+            .search("hello world", SearchOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn search_filters_by_session() {
+        let mem = SlidingWindowMemory::new(10);
+        mem.store_messages("s1", &[Message::user("target")])
+            .await
+            .unwrap();
+        mem.store_messages("s2", &[Message::user("target")])
+            .await
+            .unwrap();
+
+        let opts = SearchOptions {
+            session_id: Some("s1".into()),
+            ..Default::default()
+        };
+        let results = mem.search("target", opts).await.unwrap();
+        assert_eq!(results.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn clear_removes_session() {
+        let mem = SlidingWindowMemory::new(10);
+        mem.store_messages("s1", &[Message::user("hello")])
+            .await
+            .unwrap();
+        mem.clear("s1").await.unwrap();
+
+        let retrieved = mem
+            .get_messages("s1", RetrieveOptions::default())
+            .await
+            .unwrap();
+        assert!(retrieved.is_empty());
+    }
+
+    #[tokio::test]
+    async fn window_size_one() {
+        let mem = SlidingWindowMemory::new(1);
+        mem.store_messages("s1", &[Message::user("a"), Message::user("b")])
+            .await
+            .unwrap();
+
+        let retrieved = mem
+            .get_messages("s1", RetrieveOptions::default())
+            .await
+            .unwrap();
+        assert_eq!(retrieved.len(), 1);
+        assert_eq!(retrieved[0].text(), Some("b"));
+    }
+
+    #[tokio::test]
+    async fn empty_session_returns_empty() {
+        let mem = SlidingWindowMemory::new(5);
+        let retrieved = mem
+            .get_messages("nonexistent", RetrieveOptions::default())
+            .await
+            .unwrap();
+        assert!(retrieved.is_empty());
+    }
+}

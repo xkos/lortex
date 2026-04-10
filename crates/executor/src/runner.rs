@@ -543,3 +543,403 @@ impl Default for RunnerBuilder {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lortex_core::agent::{AgentBuilder, SimpleAgent};
+    use lortex_core::error::ProviderError;
+    use lortex_core::message::{ContentPart, Role};
+    use lortex_core::provider::{
+        CompletionRequest, CompletionResponse, ProviderCapabilities, StreamEvent,
+    };
+    use lortex_core::tool::{FnTool, ToolOutput};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    // --- Mock Provider ---
+
+    /// A mock provider that returns pre-configured responses in sequence.
+    struct MockProvider {
+        responses: Vec<CompletionResponse>,
+        call_count: AtomicUsize,
+    }
+
+    impl MockProvider {
+        fn new(responses: Vec<CompletionResponse>) -> Self {
+            Self {
+                responses,
+                call_count: AtomicUsize::new(0),
+            }
+        }
+
+        /// Create a provider that always returns a simple text response.
+        fn text(text: &str) -> Self {
+            Self::new(vec![CompletionResponse {
+                message: Message::assistant(text),
+                usage: None,
+                finish_reason: None,
+                model: "mock".into(),
+            }])
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for MockProvider {
+        fn name(&self) -> &str {
+            "mock"
+        }
+
+        async fn complete(
+            &self,
+            _request: CompletionRequest,
+        ) -> Result<CompletionResponse, ProviderError> {
+            let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
+            self.responses
+                .get(idx)
+                .cloned()
+                .ok_or_else(|| ProviderError::InvalidResponse("No more mock responses".into()))
+        }
+
+        fn complete_stream(
+            &self,
+            _request: CompletionRequest,
+        ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send + '_>> {
+            Box::pin(futures::stream::empty())
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities {
+                streaming: false,
+                tool_calling: true,
+                ..Default::default()
+            }
+        }
+    }
+
+    fn make_tool_call_response(tool_name: &str, call_id: &str, args: Value) -> CompletionResponse {
+        let mut msg = Message::assistant("");
+        msg.content = vec![ContentPart::ToolCall {
+            id: call_id.into(),
+            name: tool_name.into(),
+            arguments: args,
+        }];
+        CompletionResponse {
+            message: msg,
+            usage: None,
+            finish_reason: None,
+            model: "mock".into(),
+        }
+    }
+
+    fn make_text_response(text: &str) -> CompletionResponse {
+        CompletionResponse {
+            message: Message::assistant(text),
+            usage: None,
+            finish_reason: None,
+            model: "mock".into(),
+        }
+    }
+
+    fn simple_agent() -> SimpleAgent {
+        AgentBuilder::new()
+            .name("test_agent")
+            .instructions("You are a test agent")
+            .model("mock")
+            .build()
+            .unwrap()
+    }
+
+    // --- Tests ---
+
+    #[test]
+    fn runner_config_defaults() {
+        let config = RunnerConfig::default();
+        assert_eq!(config.max_iterations, 10);
+        assert_eq!(config.max_tool_calls_per_turn, 20);
+        assert!(config.enable_input_guardrails);
+        assert!(config.enable_output_guardrails);
+    }
+
+    #[test]
+    fn runner_builder_requires_provider() {
+        let result = RunnerBuilder::new().build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn runner_builder_with_provider() {
+        let provider = Arc::new(MockProvider::text("hi"));
+        let runner = RunnerBuilder::new().provider(provider).build();
+        assert!(runner.is_ok());
+    }
+
+    #[test]
+    fn runner_builder_config_methods() {
+        let provider = Arc::new(MockProvider::text("hi"));
+        let runner = RunnerBuilder::new()
+            .provider(provider)
+            .max_iterations(5)
+            .max_tool_calls_per_turn(3)
+            .build()
+            .unwrap();
+        assert_eq!(runner.config.max_iterations, 5);
+        assert_eq!(runner.config.max_tool_calls_per_turn, 3);
+    }
+
+    #[tokio::test]
+    async fn run_simple_text_response() {
+        let provider = Arc::new(MockProvider::text("Hello!"));
+        let runner = Runner::new(provider);
+        let agent = simple_agent();
+
+        let output = runner.run(&agent, "Hi").await.unwrap();
+        assert_eq!(output.message.text(), Some("Hello!"));
+        assert_eq!(output.agent_name, "test_agent");
+        // Messages should include: system + user + assistant
+        assert!(output.messages.len() >= 3);
+    }
+
+    #[tokio::test]
+    async fn run_with_tool_call() {
+        // First response: tool call, second response: final text
+        let echo_tool = Arc::new(FnTool::new(
+            "echo",
+            "Echo input",
+            serde_json::json!({"type":"object","properties":{"text":{"type":"string"}}}),
+            |args| async move {
+                let text = args.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                Ok(ToolOutput::text(format!("echoed: {text}")))
+            },
+        ));
+
+        let provider = Arc::new(MockProvider::new(vec![
+            make_tool_call_response("echo", "call_1", serde_json::json!({"text": "hello"})),
+            make_text_response("Done echoing"),
+        ]));
+
+        let agent = AgentBuilder::new()
+            .name("tool_agent")
+            .instructions("Use tools")
+            .model("mock")
+            .tool(echo_tool)
+            .build()
+            .unwrap();
+
+        let runner = Runner::new(provider);
+        let output = runner.run(&agent, "echo something").await.unwrap();
+        assert_eq!(output.message.text(), Some("Done echoing"));
+    }
+
+    #[tokio::test]
+    async fn run_unknown_tool_returns_error_output() {
+        // LLM calls a tool that doesn't exist, then gives final answer
+        let provider = Arc::new(MockProvider::new(vec![
+            make_tool_call_response("nonexistent", "call_1", serde_json::json!({})),
+            make_text_response("Fallback answer"),
+        ]));
+
+        let agent = simple_agent();
+        let runner = Runner::new(provider);
+        let output = runner.run(&agent, "test").await.unwrap();
+        assert_eq!(output.message.text(), Some("Fallback answer"));
+        // The tool result message should contain an error
+        let tool_result_msg = output
+            .messages
+            .iter()
+            .find(|m| m.role == Role::Tool)
+            .unwrap();
+        match &tool_result_msg.content[0] {
+            ContentPart::ToolResult { is_error, .. } => assert!(is_error),
+            _ => panic!("expected ToolResult"),
+        }
+    }
+
+    #[tokio::test]
+    async fn run_max_iterations_exceeded() {
+        // Provider always returns tool calls, never a final answer
+        let responses: Vec<CompletionResponse> = (0..20)
+            .map(|i| {
+                make_tool_call_response("echo", &format!("call_{i}"), serde_json::json!({}))
+            })
+            .collect();
+
+        let provider = Arc::new(MockProvider::new(responses));
+        let runner = RunnerBuilder::new()
+            .provider(provider)
+            .max_iterations(3)
+            .build()
+            .unwrap();
+
+        let agent = simple_agent();
+        let result = runner.run(&agent, "loop forever").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Max iterations (3) exceeded"));
+    }
+
+    #[tokio::test]
+    async fn run_with_input_guardrail_block() {
+        use lortex_core::guardrail::{Guardrail, GuardrailResult};
+
+        struct BlockAll;
+
+        #[async_trait::async_trait]
+        impl Guardrail for BlockAll {
+            fn name(&self) -> &str {
+                "block_all"
+            }
+            async fn check_input(&self, _messages: &[Message]) -> GuardrailResult {
+                GuardrailResult::Block {
+                    message: "All input blocked".into(),
+                }
+            }
+            async fn check_output(&self, _output: &Message) -> GuardrailResult {
+                GuardrailResult::Pass
+            }
+        }
+
+        let provider = Arc::new(MockProvider::text("should not reach"));
+        let runner = Runner::new(provider);
+
+        let agent = AgentBuilder::new()
+            .name("guarded")
+            .instructions("")
+            .model("mock")
+            .input_guardrail(Arc::new(BlockAll))
+            .build()
+            .unwrap();
+
+        let result = runner.run(&agent, "blocked input").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Guardrail blocked"));
+    }
+
+    #[tokio::test]
+    async fn run_with_output_guardrail_block() {
+        use lortex_core::guardrail::{Guardrail, GuardrailResult};
+
+        struct BlockOutput;
+
+        #[async_trait::async_trait]
+        impl Guardrail for BlockOutput {
+            fn name(&self) -> &str {
+                "block_output"
+            }
+            async fn check_input(&self, _messages: &[Message]) -> GuardrailResult {
+                GuardrailResult::Pass
+            }
+            async fn check_output(&self, _output: &Message) -> GuardrailResult {
+                GuardrailResult::Block {
+                    message: "Output blocked".into(),
+                }
+            }
+        }
+
+        let provider = Arc::new(MockProvider::text("bad output"));
+        let runner = Runner::new(provider);
+
+        let agent = AgentBuilder::new()
+            .name("guarded")
+            .instructions("")
+            .model("mock")
+            .output_guardrail(Arc::new(BlockOutput))
+            .build()
+            .unwrap();
+
+        let result = runner.run(&agent, "test").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Guardrail blocked"));
+    }
+
+    #[tokio::test]
+    async fn run_with_messages_input() {
+        let provider = Arc::new(MockProvider::text("response"));
+        let runner = Runner::new(provider);
+        let agent = simple_agent();
+
+        let messages = vec![Message::user("hello"), Message::user("world")];
+        let output = runner.run(&agent, messages).await.unwrap();
+        assert_eq!(output.message.text(), Some("response"));
+    }
+
+    #[tokio::test]
+    async fn run_with_handoff() {
+        let target_agent = Arc::new(
+            AgentBuilder::new()
+                .name("target")
+                .instructions("I am the target")
+                .model("mock")
+                .build()
+                .unwrap(),
+        );
+
+        // First call: main agent triggers handoff
+        // Second call: target agent responds
+        let provider = Arc::new(MockProvider::new(vec![
+            make_tool_call_response("transfer_to_target", "call_1", serde_json::json!({})),
+            make_text_response("Target response"),
+        ]));
+
+        let agent = AgentBuilder::new()
+            .name("router")
+            .instructions("Route tasks")
+            .model("mock")
+            .handoff_to(target_agent)
+            .build()
+            .unwrap();
+
+        let runner = Runner::new(provider);
+        let output = runner.run(&agent, "do something").await.unwrap();
+        assert_eq!(output.message.text(), Some("Target response"));
+        assert_eq!(output.agent_name, "target");
+    }
+
+    #[tokio::test]
+    async fn run_guardrails_disabled() {
+        use lortex_core::guardrail::{Guardrail, GuardrailResult};
+
+        struct AlwaysBlock;
+
+        #[async_trait::async_trait]
+        impl Guardrail for AlwaysBlock {
+            fn name(&self) -> &str {
+                "always_block"
+            }
+            async fn check_input(&self, _messages: &[Message]) -> GuardrailResult {
+                GuardrailResult::Block {
+                    message: "blocked".into(),
+                }
+            }
+            async fn check_output(&self, _output: &Message) -> GuardrailResult {
+                GuardrailResult::Block {
+                    message: "blocked".into(),
+                }
+            }
+        }
+
+        let provider = Arc::new(MockProvider::text("success"));
+        let config = RunnerConfig {
+            enable_input_guardrails: false,
+            enable_output_guardrails: false,
+            ..Default::default()
+        };
+        let runner = RunnerBuilder::new()
+            .provider(provider)
+            .config(config)
+            .build()
+            .unwrap();
+
+        let agent = AgentBuilder::new()
+            .name("guarded")
+            .instructions("")
+            .model("mock")
+            .input_guardrail(Arc::new(AlwaysBlock))
+            .output_guardrail(Arc::new(AlwaysBlock))
+            .build()
+            .unwrap();
+
+        // Should succeed because guardrails are disabled
+        let output = runner.run(&agent, "test").await.unwrap();
+        assert_eq!(output.message.text(), Some("success"));
+    }
+}

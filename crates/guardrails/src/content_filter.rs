@@ -74,3 +74,109 @@ impl Guardrail for ContentFilter {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lortex_core::guardrail::Guardrail;
+    use lortex_core::message::Message;
+
+    #[test]
+    fn name_returns_content_filter() {
+        let filter = ContentFilter::new(vec![]);
+        assert_eq!(filter.name(), "content_filter");
+    }
+
+    #[tokio::test]
+    async fn pass_when_no_blocked_patterns() {
+        let filter = ContentFilter::new(vec![]);
+        let result = filter
+            .check_input(&[Message::user("anything goes")])
+            .await;
+        assert!(result.is_pass());
+    }
+
+    #[tokio::test]
+    async fn blocks_matching_pattern() {
+        let filter = ContentFilter::new(vec!["forbidden".into()]);
+        let result = filter
+            .check_input(&[Message::user("this is forbidden content")])
+            .await;
+        assert!(result.is_block());
+    }
+
+    #[tokio::test]
+    async fn case_insensitive_matching() {
+        let filter = ContentFilter::new(vec!["blocked".into()]);
+        let result = filter
+            .check_input(&[Message::user("This is BLOCKED text")])
+            .await;
+        assert!(result.is_block());
+    }
+
+    #[tokio::test]
+    async fn pass_when_no_match() {
+        let filter = ContentFilter::new(vec!["forbidden".into()]);
+        let result = filter
+            .check_input(&[Message::user("perfectly fine content")])
+            .await;
+        assert!(result.is_pass());
+    }
+
+    #[tokio::test]
+    async fn checks_all_messages_in_input() {
+        let filter = ContentFilter::new(vec!["bad".into()]);
+        let result = filter
+            .check_input(&[
+                Message::user("good message"),
+                Message::user("this is bad"),
+            ])
+            .await;
+        assert!(result.is_block());
+    }
+
+    #[tokio::test]
+    async fn check_output_blocks_matching() {
+        let filter = ContentFilter::new(vec!["secret".into()]);
+        let result = filter
+            .check_output(&Message::assistant("this contains a secret"))
+            .await;
+        assert!(result.is_block());
+    }
+
+    #[tokio::test]
+    async fn check_output_passes_clean() {
+        let filter = ContentFilter::new(vec!["secret".into()]);
+        let result = filter
+            .check_output(&Message::assistant("nothing wrong here"))
+            .await;
+        assert!(result.is_pass());
+    }
+
+    #[tokio::test]
+    async fn check_output_passes_no_text() {
+        let filter = ContentFilter::new(vec!["secret".into()]);
+        let msg = Message::tool_result("call_1", serde_json::json!("ok"), false);
+        let result = filter.check_output(&msg).await;
+        assert!(result.is_pass());
+    }
+
+    #[test]
+    fn add_pattern_builder() {
+        let filter = ContentFilter::new(vec![])
+            .add_pattern("bad")
+            .add_pattern("evil");
+        // Verify patterns were added by checking behavior
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(filter.check_input(&[Message::user("evil plan")]));
+        assert!(result.is_block());
+    }
+
+    #[test]
+    fn default_filter_has_no_patterns() {
+        let filter = ContentFilter::default_filter();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(filter.check_input(&[Message::user("anything")]));
+        assert!(result.is_pass());
+    }
+}
