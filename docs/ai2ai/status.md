@@ -11,8 +11,8 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 ## 当前迭代
 
-- 当前活跃：003b-proxy-handler（待验收）
-- 分支：iter/003b-proxy-handler
+- 当前活跃：003c-proxy-streaming（待验收）
+- 分支：iter/003c-proxy-streaming
 
 ---
 
@@ -22,7 +22,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 |------|------|---------|
 | core | ✅ 可用 | 71 tests |
 | executor | ✅ 可用 | 13 tests |
-| providers | ✅ 可用 | 0 tests |
+| providers | ✅ 可用（streaming 已修复） | 0 tests |
 | protocols | 🔨 部分 | 0 tests |
 | tools | ✅ 可用 | 24 tests |
 | swarm | ✅ 可用 | 0 tests |
@@ -30,7 +30,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 | memory | ✅ 可用 | 24 tests |
 | macros | ✅ 可用 | 0 tests |
 | router | ✅ 可用 | 43 tests |
-| server | 🔨 部分 | 60 tests（存储 + Admin + 协议 + 鉴权 + proxy handler，streaming 待 003c） |
+| server | ✅ 可用 | 72 tests（存储 + Admin + 协议 + 鉴权 + proxy handler + Anthropic） |
 
 ---
 
@@ -39,22 +39,24 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 - ✅ mock Provider → Runner → Agent + Tool + Guardrails（6 tests）
 - ✅ Router → Runner → Agent + Tool + CostTracker（3 tests）
 - ✅ Admin API → SQLite Store → CRUD（5 tests）
-- ✅ Proxy API → 鉴权 → 模型解析 → Provider 构建（10 tests）
-- ⏳ Streaming SSE + Anthropic 入口（003c）
+- ✅ Proxy /v1/chat/completions（non-streaming + streaming SSE）
+- ✅ Proxy /v1/messages（Anthropic 格式入口）
+- ✅ Proxy /v1/models（按 API Key 返回模型组）
+- ✅ API Key 鉴权（Bearer + x-api-key）+ credit 扣减
 
 ---
 
 ## 已知问题 / 技术债
 
-- Provider streaming 是伪流式（先拉完整 body 再解析）
-- Router streaming 未实现（返回空 stream）
+- /v1/messages streaming 未实现（non-streaming 可用）
 - MCP stdio transport 未实现
 - HttpTool 无测试
-- providers/protocols/swarm/macros 无测试
+- providers/protocols/swarm/macros 无单元测试
 
 ---
 
 ## 下一步建议
 
-1. 003c：Streaming SSE + Anthropic /v1/messages 入口 + providers 真实 SSE 修复
+1. 真实厂商端到端测试（用真实 API key 验证完整链路）
 2. 004：FallbackRouter + 多模态适配
+3. /v1/messages streaming 实现

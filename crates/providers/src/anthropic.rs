@@ -332,70 +332,137 @@ impl Provider for AnthropicProvider {
 
         let client = self.client.clone();
 
-        Box::pin(futures::stream::unfold(
-            Some((client, url, api_key, body)),
-            |state| async move {
-                let (client, url, api_key, body) = state?;
+        Box::pin(async_stream::try_stream! {
+            let resp = client
+                .post(&url)
+                .header("x-api-key", &api_key)
+                .header("anthropic-version", ANTHROPIC_API_VERSION)
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| ProviderError::Network(e.to_string()))?;
 
-                let resp = match client
-                    .post(&url)
-                    .header("x-api-key", &api_key)
-                    .header("anthropic-version", ANTHROPIC_API_VERSION)
-                    .header("Content-Type", "application/json")
-                    .json(&body)
-                    .send()
-                    .await
-                {
-                    Ok(r) => r,
-                    Err(e) => {
-                        return Some((Err(ProviderError::Network(e.to_string())), None));
+            let status = resp.status().as_u16();
+            if status >= 400 {
+                let text = resp.text().await.unwrap_or_default();
+                return Err(ProviderError::Api { status, message: text })?;
+            }
+
+            let mut byte_stream = resp.bytes_stream();
+            let mut buffer = String::new();
+            let mut current_tool_index: usize = 0;
+            let mut usage_data: Option<Usage> = None;
+
+            use futures::StreamExt;
+            while let Some(chunk) = byte_stream.next().await {
+                let chunk = chunk.map_err(|e| ProviderError::Network(e.to_string()))?;
+                buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+                while let Some(newline_pos) = buffer.find('\n') {
+                    let line = buffer[..newline_pos].trim_end_matches('\r').to_string();
+                    buffer = buffer[newline_pos + 1..].to_string();
+
+                    if line.is_empty() {
+                        continue;
                     }
-                };
 
-                let text = match resp.text().await {
-                    Ok(t) => t,
-                    Err(e) => {
-                        return Some((Err(ProviderError::Network(e.to_string())), None));
-                    }
-                };
+                    let data = match line.strip_prefix("data: ") {
+                        Some(d) => d,
+                        None => continue,
+                    };
 
-                let mut full_content = String::new();
-                for line in text.lines() {
-                    if let Some(data) = line.strip_prefix("data: ") {
-                        if let Ok(event) = serde_json::from_str::<Value>(data) {
-                            let event_type =
-                                event.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                            if event_type == "content_block_delta" {
-                                if let Some(delta) = event
-                                    .get("delta")
-                                    .and_then(|d| d.get("text"))
-                                    .and_then(|t| t.as_str())
-                                {
-                                    full_content.push_str(delta);
+                    let event: Value = match serde_json::from_str(data) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+
+                    let event_type = event.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+                    match event_type {
+                        "content_block_start" => {
+                            let index = event.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
+                            if let Some(block) = event.get("content_block") {
+                                let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                if block_type == "tool_use" {
+                                    current_tool_index = index;
+                                    let id = block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                    let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                    yield StreamEvent::ToolCallStart { index, id, name };
                                 }
                             }
                         }
+                        "content_block_delta" => {
+                            if let Some(delta) = event.get("delta") {
+                                let delta_type = delta.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                match delta_type {
+                                    "text_delta" => {
+                                        if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
+                                            if !text.is_empty() {
+                                                yield StreamEvent::ContentDelta { delta: text.to_string() };
+                                            }
+                                        }
+                                    }
+                                    "input_json_delta" => {
+                                        if let Some(partial) = delta.get("partial_json").and_then(|p| p.as_str()) {
+                                            if !partial.is_empty() {
+                                                yield StreamEvent::ToolCallDelta {
+                                                    index: current_tool_index,
+                                                    arguments_delta: partial.to_string(),
+                                                };
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        "message_delta" => {
+                            let stop_reason = event
+                                .get("delta")
+                                .and_then(|d| d.get("stop_reason"))
+                                .and_then(|s| s.as_str());
+
+                            // Capture usage from message_delta
+                            if let Some(u) = event.get("usage") {
+                                let output_tokens = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                                if let Some(ref mut existing) = usage_data {
+                                    existing.completion_tokens = output_tokens;
+                                    existing.total_tokens = existing.prompt_tokens + output_tokens;
+                                }
+                            }
+
+                            if let Some(reason) = stop_reason {
+                                let finish_reason = match reason {
+                                    "end_turn" => FinishReason::Stop,
+                                    "tool_use" => FinishReason::ToolCalls,
+                                    "max_tokens" => FinishReason::Length,
+                                    _ => FinishReason::Stop,
+                                };
+                                yield StreamEvent::Done {
+                                    usage: usage_data.clone(),
+                                    finish_reason: Some(finish_reason),
+                                };
+                            }
+                        }
+                        "message_start" => {
+                            // Capture initial usage (input tokens)
+                            if let Some(msg) = event.get("message") {
+                                if let Some(u) = msg.get("usage") {
+                                    let input_tokens = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                                    usage_data = Some(Usage {
+                                        prompt_tokens: input_tokens,
+                                        completion_tokens: 0,
+                                        total_tokens: input_tokens,
+                                    });
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
-
-                if !full_content.is_empty() {
-                    Some((
-                        Ok(StreamEvent::ContentDelta {
-                            delta: full_content,
-                        }),
-                        None,
-                    ))
-                } else {
-                    Some((
-                        Ok(StreamEvent::Done {
-                            usage: None,
-                            finish_reason: Some(FinishReason::Stop),
-                        }),
-                        None,
-                    ))
-                }
-            },
-        ))
+            }
+        })
     }
 
     fn capabilities(&self) -> ProviderCapabilities {

@@ -316,3 +316,99 @@ async fn chat_completions_proxy_managed() {
     // Should resolve to default_model, not 404
     assert_ne!(resp.status(), StatusCode::NOT_FOUND);
 }
+
+// --- /v1/messages (Anthropic) tests ---
+
+#[tokio::test]
+async fn messages_requires_auth() {
+    let (app, _) = setup().await;
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/messages")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            r#"{"model":"test","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}"#,
+        ))
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn messages_model_not_found() {
+    let (app, _) = setup().await;
+    let api_key = seed_test_data(&app).await;
+
+    let resp = app
+        .oneshot(proxy_request(
+            "POST",
+            "/v1/messages",
+            &api_key,
+            Some(r#"{"model":"nonexistent","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn messages_resolves_model() {
+    let (app, _) = setup().await;
+    let api_key = seed_test_data(&app).await;
+
+    // Use a valid model — will fail at LLM call (fake key) but should resolve model OK
+    let resp = app
+        .oneshot(proxy_request(
+            "POST",
+            "/v1/messages",
+            &api_key,
+            Some(r#"{"model":"test-openai/gpt-4o","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}"#),
+        ))
+        .await
+        .unwrap();
+    // Should NOT be 404 — model resolved
+    assert_ne!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn messages_with_x_api_key_header() {
+    let (app, _) = setup().await;
+    let api_key = seed_test_data(&app).await;
+
+    // x-api-key auth should work — model resolves, upstream will fail (fake key)
+    // but we should NOT get a proxy-level "Missing API key" or "Invalid API key" error
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/messages")
+        .header("x-api-key", api_key.as_str())
+        .header("content-type", "application/json")
+        .body(Body::from(
+            r#"{"model":"test-openai/gpt-4o","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}"#,
+        ))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    // Model resolved (not 404), auth passed (upstream error, not proxy auth error)
+    assert_ne!(resp.status(), StatusCode::NOT_FOUND);
+    // Verify it's an upstream error, not a proxy auth error
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let body_str = String::from_utf8_lossy(&body);
+    assert!(!body_str.contains("Missing API key"));
+    assert!(!body_str.contains("Invalid API key"));
+}
+
+#[tokio::test]
+async fn messages_proxy_managed() {
+    let (app, _) = setup().await;
+    let api_key = seed_test_data(&app).await;
+
+    let resp = app
+        .oneshot(proxy_request(
+            "POST",
+            "/v1/messages",
+            &api_key,
+            Some(r#"{"model":"PROXY_MANAGED","max_tokens":100,"messages":[{"role":"user","content":"hi"}]}"#),
+        ))
+        .await
+        .unwrap();
+    assert_ne!(resp.status(), StatusCode::NOT_FOUND);
+}

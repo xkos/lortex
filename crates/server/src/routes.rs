@@ -6,7 +6,7 @@ use axum::{
     Router,
 };
 
-use crate::handlers::{admin, chat, models};
+use crate::handlers::{admin, chat, messages, models};
 use crate::middleware::auth::{admin_auth, AdminKey};
 use crate::middleware::proxy_auth::proxy_auth;
 use crate::state::AppState;
@@ -31,6 +31,7 @@ pub fn proxy_routes(state: AppState) -> Router {
     Router::new()
         .route("/v1/chat/completions", post(chat::chat_completions))
         .route("/v1/models", get(models::list_models))
+        .route("/v1/messages", post(messages::messages))
         .layer(middleware::from_fn(proxy_auth))
         .layer(axum::Extension(state))
 }
