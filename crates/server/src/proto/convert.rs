@@ -245,6 +245,157 @@ pub fn lortex_tools_to_openai(tools: &[ToolDefinition]) -> Vec<Tool> {
 }
 
 // ============================================================================
+// Anthropic Request → Lortex
+// ============================================================================
+
+use crate::proto::anthropic::{
+    AnthropicContent, ContentBlock, MessagesRequest,
+    MessagesResponse, AnthropicUsage,
+};
+
+/// 将 Anthropic MessagesRequest 转换为 Lortex CompletionRequest
+pub fn anthropic_request_to_lortex(req: &MessagesRequest) -> CompletionRequest {
+    let mut messages = Vec::new();
+
+    // System prompt as first message
+    if let Some(system) = &req.system {
+        messages.push(Message::system(system.clone()));
+    }
+
+    // Convert messages
+    for msg in &req.messages {
+        let role = match msg.role.as_str() {
+            "user" => Role::User,
+            "assistant" => Role::Assistant,
+            _ => Role::User,
+        };
+
+        let mut parts = Vec::new();
+        match &msg.content {
+            AnthropicContent::Text(t) => {
+                parts.push(LortexContent::Text { text: t.clone() });
+            }
+            AnthropicContent::Blocks(blocks) => {
+                for block in blocks {
+                    match block {
+                        ContentBlock::Text { text } => {
+                            parts.push(LortexContent::Text { text: text.clone() });
+                        }
+                        ContentBlock::Image { source } => {
+                            let url = source.url.clone().unwrap_or_default();
+                            parts.push(LortexContent::Image {
+                                url,
+                                media_type: source.media_type.clone(),
+                            });
+                        }
+                        ContentBlock::ToolUse { id, name, input } => {
+                            parts.push(LortexContent::ToolCall {
+                                id: id.clone(),
+                                name: name.clone(),
+                                arguments: input.clone(),
+                            });
+                        }
+                        ContentBlock::ToolResult {
+                            tool_use_id,
+                            content,
+                            is_error,
+                        } => {
+                            parts.push(LortexContent::ToolResult {
+                                call_id: tool_use_id.clone(),
+                                content: content.clone(),
+                                is_error: *is_error,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut m = Message::new(role, "");
+        m.content = parts;
+        messages.push(m);
+    }
+
+    let tools: Vec<ToolDefinition> = req
+        .tools
+        .as_ref()
+        .map(|tools| {
+            tools
+                .iter()
+                .map(|t| ToolDefinition {
+                    name: t.name.clone(),
+                    description: t.description.clone().unwrap_or_default(),
+                    parameters: t.input_schema.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let stop = req.stop_sequences.clone().unwrap_or_default();
+
+    CompletionRequest {
+        model: req.model.clone(),
+        messages,
+        tools,
+        temperature: req.temperature.unwrap_or(0.7),
+        max_tokens: Some(req.max_tokens),
+        stop,
+        extra: Value::Null,
+    }
+}
+
+/// 将 Lortex CompletionResponse 转换为 Anthropic MessagesResponse
+pub fn lortex_response_to_anthropic(
+    resp: &CompletionResponse,
+    request_model: &str,
+) -> MessagesResponse {
+    let mut content_blocks = Vec::new();
+
+    for part in &resp.message.content {
+        match part {
+            LortexContent::Text { text } => {
+                content_blocks.push(ContentBlock::Text { text: text.clone() });
+            }
+            LortexContent::ToolCall { id, name, arguments } => {
+                content_blocks.push(ContentBlock::ToolUse {
+                    id: id.clone(),
+                    name: name.clone(),
+                    input: arguments.clone(),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    let stop_reason = resp.finish_reason.as_ref().map(|r| {
+        match r {
+            lortex_core::provider::FinishReason::Stop => "end_turn",
+            lortex_core::provider::FinishReason::ToolCalls => "tool_use",
+            lortex_core::provider::FinishReason::Length => "max_tokens",
+            lortex_core::provider::FinishReason::ContentFilter => "end_turn",
+        }
+        .to_string()
+    });
+
+    let usage = resp.usage.as_ref().map(|u| AnthropicUsage {
+        input_tokens: u.prompt_tokens,
+        output_tokens: u.completion_tokens,
+        cache_creation_input_tokens: None,
+        cache_read_input_tokens: None,
+    });
+
+    MessagesResponse {
+        id: format!("msg_{}", uuid::Uuid::new_v4()),
+        response_type: "message".into(),
+        role: "assistant".into(),
+        content: content_blocks,
+        model: request_model.into(),
+        stop_reason,
+        usage,
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
