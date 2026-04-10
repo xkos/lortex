@@ -7,6 +7,7 @@
 //! - [`CostTracker`] — 成本追踪
 //! - [`Router`] — 实现 `Provider` trait 的智能路由器
 
+pub mod cost;
 pub mod registry;
 pub mod strategy;
 
@@ -16,3 +17,4 @@ pub use registry::{
 pub use strategy::{
     FixedRouter, ModelSelection, RoutingError, RoutingRequest, RoutingStrategy,
 };
+pub use cost::{BudgetStatus, CostRecord, CostTracker};
