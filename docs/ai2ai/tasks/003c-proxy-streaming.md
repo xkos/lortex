@@ -1,6 +1,6 @@
 # 任务 003c: Streaming SSE + Anthropic 入口
 
-> 状态：🔨 进行中
+> 状态：✅ 已关闭
 > 分支：iter/003c-proxy-streaming
 > 配对迭代：[iterations/003c-proxy-streaming.md](../iterations/003c-proxy-streaming.md)
 
@@ -16,13 +16,13 @@
 - `cargo test --workspace` 全量通过
 
 ## 任务分解
-- [ ] T1: OpenAI provider 真实 SSE streaming 修复
+- [x] T1: OpenAI provider 真实 SSE streaming 修复
   - 验证：complete_stream 逐 chunk 产出 ContentDelta 事件
-- [ ] T2: Anthropic provider 真实 SSE streaming 修复
+- [x] T2: Anthropic provider 真实 SSE streaming 修复
   - 验证：同上
-- [ ] T3: /v1/chat/completions streaming handler
+- [x] T3: /v1/chat/completions streaming handler
   - 验证：stream=true 时返回 SSE 格式，逐 chunk 透传
-- [ ] T4: Anthropic 协议类型 + /v1/messages handler
+- [x] T4: Anthropic 协议类型 + /v1/messages handler
   - 验证：Anthropic 格式请求可路由到后端
-- [ ] T5: 集成测试
+- [x] T5: 集成测试
   - 验证：streaming + Anthropic 入口端到端测试
