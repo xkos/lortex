@@ -17,8 +17,10 @@ use futures::StreamExt;
 use lortex_core::error::ProviderError;
 use lortex_core::provider::{Provider, StreamEvent};
 
+use crate::handlers::provider_builder::build_llm_provider;
 use crate::middleware::proxy_auth::deduct_credits;
 use crate::models::{ApiKey, Model};
+use crate::models::model::ApiFormat;
 use crate::models::provider::Vendor;
 use crate::proto::convert::{openai_request_to_lortex, lortex_response_to_openai};
 use crate::proto::openai::{
@@ -82,7 +84,7 @@ async fn resolve_model(
     Ok(model)
 }
 
-/// 根据 Provider 配置构建 lortex Provider 实例
+/// 根据 Provider 配置构建 lortex Provider 实例（OpenAI 格式优先）
 async fn build_provider(
     state: &AppState,
     model: &Model,
@@ -117,22 +119,7 @@ async fn build_provider(
         ));
     }
 
-    let provider: Arc<dyn Provider> = match &provider_config.vendor {
-        Vendor::OpenAI | Vendor::DeepSeek | Vendor::Custom(_) => {
-            Arc::new(
-                lortex_providers::openai::OpenAIProvider::new(&provider_config.api_key)
-                    .with_base_url(&provider_config.base_url),
-            )
-        }
-        Vendor::Anthropic => {
-            Arc::new(
-                lortex_providers::anthropic::AnthropicProvider::new(&provider_config.api_key)
-                    .with_base_url(&provider_config.base_url),
-            )
-        }
-    };
-
-    Ok(provider)
+    Ok(build_llm_provider(&provider_config, model, &ApiFormat::OpenAI))
 }
 
 fn map_provider_error(e: ProviderError) -> (StatusCode, Json<ErrorResponse>) {

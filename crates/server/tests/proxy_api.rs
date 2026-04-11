@@ -235,13 +235,14 @@ async fn chat_completions_model_not_in_group() {
 
     // Create another model not in the key's group
     use chrono::Utc;
-    use lortex_server::models::model::{Model, ModelType};
+    use lortex_server::models::model::{ApiFormat, Model, ModelType};
     let model = Model {
         provider_id: "test-openai".into(),
         vendor_model_name: "gpt-4o-mini".into(),
         display_name: "GPT-4o Mini".into(),
         aliases: vec![],
         model_type: ModelType::Chat,
+        api_formats: vec![ApiFormat::OpenAI],
         supports_streaming: true,
         supports_tools: false,
         supports_structured_output: false,

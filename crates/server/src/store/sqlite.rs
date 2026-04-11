@@ -1,15 +1,15 @@
-//! SQLite 存储实现
-
-use std::collections::HashMap;
+//! SQLite 存储实现 — KV + JSON 模式
+//!
+//! 使用单表 entities 存储所有实体，核心数据以 JSON 存储在 data 字段中。
+//! 结构体字段变更不需要 migration，通过 serde(default) 自动兼容。
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use sqlx::sqlite::{SqlitePool, SqliteRow};
 use sqlx::Row;
 
 use crate::models::api_key::ApiKey;
-use crate::models::model::{Model, ModelType};
-use crate::models::provider::{Provider, Vendor};
+use crate::models::model::Model;
+use crate::models::provider::Provider;
 use crate::store::error::StoreError;
 use crate::store::traits::ProxyStore;
 
@@ -39,80 +39,11 @@ impl SqliteStore {
     }
 }
 
-// --- Row → Model 转换辅助 ---
+// --- 辅助函数 ---
 
-fn row_to_provider(row: &SqliteRow) -> Result<Provider, StoreError> {
-    Ok(Provider {
-        id: row.get("id"),
-        vendor: Vendor::from_str(row.get("vendor")),
-        display_name: row.get("display_name"),
-        api_key: row.get("api_key"),
-        base_url: row.get("base_url"),
-        enabled: row.get::<i32, _>("enabled") != 0,
-        created_at: row.get::<String, _>("created_at").parse::<DateTime<Utc>>()
-            .unwrap_or_else(|_| Utc::now()),
-    })
-}
-
-fn row_to_model(row: &SqliteRow) -> Result<Model, StoreError> {
-    let aliases_json: String = row.get("aliases");
-    let aliases: Vec<String> = serde_json::from_str(&aliases_json).unwrap_or_default();
-    let headers_json: String = row.get("extra_headers");
-    let extra_headers: HashMap<String, String> = serde_json::from_str(&headers_json).unwrap_or_default();
-
-    Ok(Model {
-        provider_id: row.get("provider_id"),
-        vendor_model_name: row.get("vendor_model_name"),
-        display_name: row.get("display_name"),
-        aliases,
-        model_type: ModelType::from_str(row.get("model_type")),
-        supports_streaming: row.get::<i32, _>("supports_streaming") != 0,
-        supports_tools: row.get::<i32, _>("supports_tools") != 0,
-        supports_structured_output: row.get::<i32, _>("supports_structured_output") != 0,
-        supports_vision: row.get::<i32, _>("supports_vision") != 0,
-        supports_prefill: row.get::<i32, _>("supports_prefill") != 0,
-        supports_cache: row.get::<i32, _>("supports_cache") != 0,
-        supports_web_search: row.get::<i32, _>("supports_web_search") != 0,
-        supports_batch: row.get::<i32, _>("supports_batch") != 0,
-        context_window: row.get::<i32, _>("context_window") as u32,
-        cache_enabled: row.get::<i32, _>("cache_enabled") != 0,
-        input_multiplier: row.get("input_multiplier"),
-        output_multiplier: row.get("output_multiplier"),
-        cache_write_multiplier: row.get("cache_write_multiplier"),
-        cache_read_multiplier: row.get("cache_read_multiplier"),
-        image_input_multiplier: row.get("image_input_multiplier"),
-        audio_input_multiplier: row.get("audio_input_multiplier"),
-        video_input_multiplier: row.get("video_input_multiplier"),
-        image_generation_multiplier: row.get("image_generation_multiplier"),
-        tts_multiplier: row.get("tts_multiplier"),
-        extra_headers,
-        enabled: row.get::<i32, _>("enabled") != 0,
-        created_at: row.get::<String, _>("created_at").parse::<DateTime<Utc>>()
-            .unwrap_or_else(|_| Utc::now()),
-    })
-}
-
-fn row_to_api_key(row: &SqliteRow) -> Result<ApiKey, StoreError> {
-    let model_group_json: String = row.get("model_group");
-    let model_group: Vec<String> = serde_json::from_str(&model_group_json).unwrap_or_default();
-    let fallback_json: String = row.get("fallback_models");
-    let fallback_models: Vec<String> = serde_json::from_str(&fallback_json).unwrap_or_default();
-    let last_used: Option<String> = row.get("last_used_at");
-
-    Ok(ApiKey {
-        id: row.get("id"),
-        key: row.get("key"),
-        name: row.get("name"),
-        model_group,
-        default_model: row.get("default_model"),
-        fallback_models,
-        credit_limit: row.get::<i64, _>("credit_limit"),
-        credit_used: row.get::<i64, _>("credit_used"),
-        enabled: row.get::<i32, _>("enabled") != 0,
-        created_at: row.get::<String, _>("created_at").parse::<DateTime<Utc>>()
-            .unwrap_or_else(|_| Utc::now()),
-        last_used_at: last_used.and_then(|s| s.parse::<DateTime<Utc>>().ok()),
-    })
+fn parse_json<T: serde::de::DeserializeOwned>(row: &SqliteRow) -> Result<T, StoreError> {
+    let data: String = row.get("data");
+    serde_json::from_str(&data).map_err(|e| StoreError::Serialization(e.to_string()))
 }
 
 // --- ProxyStore 实现 ---
@@ -122,37 +53,34 @@ impl ProxyStore for SqliteStore {
     // --- Provider ---
 
     async fn get_provider(&self, id: &str) -> Result<Option<Provider>, StoreError> {
-        let row = sqlx::query("SELECT * FROM providers WHERE id = ?")
+        let row = sqlx::query("SELECT data FROM entities WHERE kind = 'provider' AND id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?;
-        row.as_ref().map(row_to_provider).transpose()
+        row.as_ref().map(parse_json::<Provider>).transpose()
     }
 
     async fn list_providers(&self) -> Result<Vec<Provider>, StoreError> {
-        let rows = sqlx::query("SELECT * FROM providers ORDER BY created_at")
-            .fetch_all(&self.pool)
-            .await?;
-        rows.iter().map(row_to_provider).collect()
+        let rows = sqlx::query(
+            "SELECT data FROM entities WHERE kind = 'provider' ORDER BY created_at"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(parse_json::<Provider>).collect()
     }
 
     async fn upsert_provider(&self, p: &Provider) -> Result<(), StoreError> {
+        let data = serde_json::to_string(p)?;
         sqlx::query(
-            "INSERT INTO providers (id, vendor, display_name, api_key, base_url, enabled, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET
-                vendor = excluded.vendor,
-                display_name = excluded.display_name,
-                api_key = excluded.api_key,
-                base_url = excluded.base_url,
+            "INSERT INTO entities (kind, id, secondary_key, enabled, data, created_at)
+             VALUES ('provider', ?, NULL, ?, ?, ?)
+             ON CONFLICT(kind, id) DO UPDATE SET
+                data = excluded.data,
                 enabled = excluded.enabled"
         )
         .bind(&p.id)
-        .bind(p.vendor.as_str())
-        .bind(&p.display_name)
-        .bind(&p.api_key)
-        .bind(&p.base_url)
         .bind(p.enabled as i32)
+        .bind(&data)
         .bind(p.created_at.to_rfc3339())
         .execute(&self.pool)
         .await?;
@@ -160,7 +88,7 @@ impl ProxyStore for SqliteStore {
     }
 
     async fn delete_provider(&self, id: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM providers WHERE id = ?")
+        sqlx::query("DELETE FROM entities WHERE kind = 'provider' AND id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
@@ -174,47 +102,58 @@ impl ProxyStore for SqliteStore {
         provider_id: &str,
         vendor_model_name: &str,
     ) -> Result<Option<Model>, StoreError> {
-        let row = sqlx::query(
-            "SELECT * FROM models WHERE provider_id = ? AND vendor_model_name = ?"
-        )
-        .bind(provider_id)
-        .bind(vendor_model_name)
-        .fetch_optional(&self.pool)
-        .await?;
-        row.as_ref().map(row_to_model).transpose()
+        let id = format!("{}/{}", provider_id, vendor_model_name);
+        let row = sqlx::query("SELECT data FROM entities WHERE kind = 'model' AND id = ?")
+            .bind(&id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(parse_json::<Model>).transpose()
     }
 
     async fn list_models(&self) -> Result<Vec<Model>, StoreError> {
-        let rows = sqlx::query("SELECT * FROM models ORDER BY created_at")
-            .fetch_all(&self.pool)
-            .await?;
-        rows.iter().map(row_to_model).collect()
+        let rows = sqlx::query(
+            "SELECT data FROM entities WHERE kind = 'model' ORDER BY created_at"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(parse_json::<Model>).collect()
     }
 
     async fn list_models_by_provider(
         &self,
         provider_id: &str,
     ) -> Result<Vec<Model>, StoreError> {
-        let rows = sqlx::query("SELECT * FROM models WHERE provider_id = ? ORDER BY created_at")
-            .bind(provider_id)
-            .fetch_all(&self.pool)
-            .await?;
-        rows.iter().map(row_to_model).collect()
+        // Use LIKE prefix match on id (which is "provider_id/model_name")
+        let prefix = format!("{}/", provider_id);
+        let rows = sqlx::query(
+            "SELECT data FROM entities WHERE kind = 'model' AND id LIKE ? ORDER BY created_at"
+        )
+        .bind(format!("{}%", prefix))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(parse_json::<Model>).collect()
     }
 
     async fn find_model(&self, name: &str) -> Result<Option<Model>, StoreError> {
-        // Try exact match on "provider_id/vendor_model_name" first
-        if let Some((pid, mname)) = name.split_once('/') {
-            if let Some(m) = self.get_model(pid, mname).await? {
-                return Ok(Some(m));
-            }
+        // Try exact match on id first
+        let row = sqlx::query(
+            "SELECT data FROM entities WHERE kind = 'model' AND id = ? AND enabled = 1"
+        )
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await?;
+        if let Some(ref r) = row {
+            return Ok(Some(parse_json::<Model>(r)?));
         }
-        // Fall back to alias search
-        let rows = sqlx::query("SELECT * FROM models WHERE enabled = 1")
-            .fetch_all(&self.pool)
-            .await?;
-        for row in &rows {
-            let model = row_to_model(row)?;
+
+        // Fall back to alias search (need to scan all models)
+        let rows = sqlx::query(
+            "SELECT data FROM entities WHERE kind = 'model' AND enabled = 1"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        for r in &rows {
+            let model: Model = parse_json(r)?;
             if model.matches(name) {
                 return Ok(Some(model));
             }
@@ -223,85 +162,18 @@ impl ProxyStore for SqliteStore {
     }
 
     async fn upsert_model(&self, m: &Model) -> Result<(), StoreError> {
-        let aliases_json = serde_json::to_string(&m.aliases)?;
-        let headers_json = serde_json::to_string(&m.extra_headers)?;
-
+        let id = m.id();
+        let data = serde_json::to_string(m)?;
         sqlx::query(
-            "INSERT INTO models (
-                provider_id, vendor_model_name, display_name, aliases, model_type,
-                supports_streaming, supports_tools, supports_structured_output,
-                supports_vision, supports_prefill, supports_cache,
-                supports_web_search, supports_batch, context_window,
-                cache_enabled,
-                input_multiplier, output_multiplier,
-                cache_write_multiplier, cache_read_multiplier,
-                image_input_multiplier, audio_input_multiplier,
-                video_input_multiplier, image_generation_multiplier, tts_multiplier,
-                extra_headers, enabled, created_at
-             ) VALUES (
-                ?, ?, ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, ?,
-                ?,
-                ?, ?,
-                ?, ?,
-                ?, ?,
-                ?, ?, ?,
-                ?, ?, ?
-             )
-             ON CONFLICT(provider_id, vendor_model_name) DO UPDATE SET
-                display_name = excluded.display_name,
-                aliases = excluded.aliases,
-                model_type = excluded.model_type,
-                supports_streaming = excluded.supports_streaming,
-                supports_tools = excluded.supports_tools,
-                supports_structured_output = excluded.supports_structured_output,
-                supports_vision = excluded.supports_vision,
-                supports_prefill = excluded.supports_prefill,
-                supports_cache = excluded.supports_cache,
-                supports_web_search = excluded.supports_web_search,
-                supports_batch = excluded.supports_batch,
-                context_window = excluded.context_window,
-                cache_enabled = excluded.cache_enabled,
-                input_multiplier = excluded.input_multiplier,
-                output_multiplier = excluded.output_multiplier,
-                cache_write_multiplier = excluded.cache_write_multiplier,
-                cache_read_multiplier = excluded.cache_read_multiplier,
-                image_input_multiplier = excluded.image_input_multiplier,
-                audio_input_multiplier = excluded.audio_input_multiplier,
-                video_input_multiplier = excluded.video_input_multiplier,
-                image_generation_multiplier = excluded.image_generation_multiplier,
-                tts_multiplier = excluded.tts_multiplier,
-                extra_headers = excluded.extra_headers,
+            "INSERT INTO entities (kind, id, secondary_key, enabled, data, created_at)
+             VALUES ('model', ?, NULL, ?, ?, ?)
+             ON CONFLICT(kind, id) DO UPDATE SET
+                data = excluded.data,
                 enabled = excluded.enabled"
         )
-        .bind(&m.provider_id)
-        .bind(&m.vendor_model_name)
-        .bind(&m.display_name)
-        .bind(&aliases_json)
-        .bind(m.model_type.as_str())
-        .bind(m.supports_streaming as i32)
-        .bind(m.supports_tools as i32)
-        .bind(m.supports_structured_output as i32)
-        .bind(m.supports_vision as i32)
-        .bind(m.supports_prefill as i32)
-        .bind(m.supports_cache as i32)
-        .bind(m.supports_web_search as i32)
-        .bind(m.supports_batch as i32)
-        .bind(m.context_window as i32)
-        .bind(m.cache_enabled as i32)
-        .bind(m.input_multiplier)
-        .bind(m.output_multiplier)
-        .bind(m.cache_write_multiplier)
-        .bind(m.cache_read_multiplier)
-        .bind(m.image_input_multiplier)
-        .bind(m.audio_input_multiplier)
-        .bind(m.video_input_multiplier)
-        .bind(m.image_generation_multiplier)
-        .bind(m.tts_multiplier)
-        .bind(&headers_json)
+        .bind(&id)
         .bind(m.enabled as i32)
+        .bind(&data)
         .bind(m.created_at.to_rfc3339())
         .execute(&self.pool)
         .await?;
@@ -313,9 +185,9 @@ impl ProxyStore for SqliteStore {
         provider_id: &str,
         vendor_model_name: &str,
     ) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM models WHERE provider_id = ? AND vendor_model_name = ?")
-            .bind(provider_id)
-            .bind(vendor_model_name)
+        let id = format!("{}/{}", provider_id, vendor_model_name);
+        sqlx::query("DELETE FROM entities WHERE kind = 'model' AND id = ?")
+            .bind(&id)
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -324,67 +196,54 @@ impl ProxyStore for SqliteStore {
     // --- ApiKey ---
 
     async fn get_api_key_by_key(&self, key: &str) -> Result<Option<ApiKey>, StoreError> {
-        let row = sqlx::query("SELECT * FROM api_keys WHERE key = ?")
-            .bind(key)
-            .fetch_optional(&self.pool)
-            .await?;
-        row.as_ref().map(row_to_api_key).transpose()
+        let row = sqlx::query(
+            "SELECT data FROM entities WHERE kind = 'api_key' AND secondary_key = ?"
+        )
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.as_ref().map(parse_json::<ApiKey>).transpose()
     }
 
     async fn get_api_key_by_id(&self, id: &str) -> Result<Option<ApiKey>, StoreError> {
-        let row = sqlx::query("SELECT * FROM api_keys WHERE id = ?")
+        let row = sqlx::query("SELECT data FROM entities WHERE kind = 'api_key' AND id = ?")
             .bind(id)
             .fetch_optional(&self.pool)
             .await?;
-        row.as_ref().map(row_to_api_key).transpose()
+        row.as_ref().map(parse_json::<ApiKey>).transpose()
     }
 
     async fn list_api_keys(&self) -> Result<Vec<ApiKey>, StoreError> {
-        let rows = sqlx::query("SELECT * FROM api_keys ORDER BY created_at")
-            .fetch_all(&self.pool)
-            .await?;
-        rows.iter().map(row_to_api_key).collect()
+        let rows = sqlx::query(
+            "SELECT data FROM entities WHERE kind = 'api_key' ORDER BY created_at"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(parse_json::<ApiKey>).collect()
     }
 
     async fn upsert_api_key(&self, k: &ApiKey) -> Result<(), StoreError> {
-        let model_group_json = serde_json::to_string(&k.model_group)?;
-        let fallback_json = serde_json::to_string(&k.fallback_models)?;
-        let last_used = k.last_used_at.map(|t| t.to_rfc3339());
-
+        let data = serde_json::to_string(k)?;
         sqlx::query(
-            "INSERT INTO api_keys (
-                id, key, name, model_group, default_model, fallback_models,
-                credit_limit, credit_used, enabled, created_at, last_used_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET
-                key = excluded.key,
-                name = excluded.name,
-                model_group = excluded.model_group,
-                default_model = excluded.default_model,
-                fallback_models = excluded.fallback_models,
-                credit_limit = excluded.credit_limit,
-                credit_used = excluded.credit_used,
-                enabled = excluded.enabled,
-                last_used_at = excluded.last_used_at"
+            "INSERT INTO entities (kind, id, secondary_key, enabled, data, created_at)
+             VALUES ('api_key', ?, ?, ?, ?, ?)
+             ON CONFLICT(kind, id) DO UPDATE SET
+                data = excluded.data,
+                secondary_key = excluded.secondary_key,
+                enabled = excluded.enabled"
         )
         .bind(&k.id)
         .bind(&k.key)
-        .bind(&k.name)
-        .bind(&model_group_json)
-        .bind(&k.default_model)
-        .bind(&fallback_json)
-        .bind(k.credit_limit)
-        .bind(k.credit_used)
         .bind(k.enabled as i32)
+        .bind(&data)
         .bind(k.created_at.to_rfc3339())
-        .bind(&last_used)
         .execute(&self.pool)
         .await?;
         Ok(())
     }
 
     async fn delete_api_key(&self, id: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM api_keys WHERE id = ?")
+        sqlx::query("DELETE FROM entities WHERE kind = 'api_key' AND id = ?")
             .bind(id)
             .execute(&self.pool)
             .await?;
@@ -392,19 +251,39 @@ impl ProxyStore for SqliteStore {
     }
 
     async fn add_credits_used(&self, key_id: &str, credits: i64) -> Result<(), StoreError> {
-        sqlx::query("UPDATE api_keys SET credit_used = credit_used + ? WHERE id = ?")
-            .bind(credits)
+        // Read, modify, write — atomic via single connection
+        let row = sqlx::query("SELECT data FROM entities WHERE kind = 'api_key' AND id = ?")
             .bind(key_id)
-            .execute(&self.pool)
+            .fetch_optional(&self.pool)
             .await?;
+        if let Some(ref r) = row {
+            let mut key: ApiKey = parse_json(r)?;
+            key.credit_used += credits;
+            let data = serde_json::to_string(&key)?;
+            sqlx::query("UPDATE entities SET data = ? WHERE kind = 'api_key' AND id = ?")
+                .bind(&data)
+                .bind(key_id)
+                .execute(&self.pool)
+                .await?;
+        }
         Ok(())
     }
 
     async fn reset_credits(&self, key_id: &str) -> Result<(), StoreError> {
-        sqlx::query("UPDATE api_keys SET credit_used = 0 WHERE id = ?")
+        let row = sqlx::query("SELECT data FROM entities WHERE kind = 'api_key' AND id = ?")
             .bind(key_id)
-            .execute(&self.pool)
+            .fetch_optional(&self.pool)
             .await?;
+        if let Some(ref r) = row {
+            let mut key: ApiKey = parse_json(r)?;
+            key.credit_used = 0;
+            let data = serde_json::to_string(&key)?;
+            sqlx::query("UPDATE entities SET data = ? WHERE kind = 'api_key' AND id = ?")
+                .bind(&data)
+                .bind(key_id)
+                .execute(&self.pool)
+                .await?;
+        }
         Ok(())
     }
 }
@@ -412,84 +291,29 @@ impl ProxyStore for SqliteStore {
 // --- Migration SQL ---
 
 const MIGRATION_STATEMENTS: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS providers (
-        id           TEXT PRIMARY KEY,
-        vendor       TEXT NOT NULL,
-        display_name TEXT NOT NULL,
-        api_key      TEXT NOT NULL,
-        base_url     TEXT NOT NULL,
-        enabled      INTEGER NOT NULL DEFAULT 1,
-        created_at   TEXT NOT NULL
+    "CREATE TABLE IF NOT EXISTS entities (
+        kind          TEXT NOT NULL,
+        id            TEXT NOT NULL,
+        secondary_key TEXT,
+        enabled       INTEGER NOT NULL DEFAULT 1,
+        data          TEXT NOT NULL,
+        created_at    TEXT NOT NULL,
+        PRIMARY KEY (kind, id)
     )",
-    "CREATE TABLE IF NOT EXISTS models (
-        provider_id            TEXT NOT NULL,
-        vendor_model_name      TEXT NOT NULL,
-        display_name           TEXT NOT NULL,
-        aliases                TEXT NOT NULL DEFAULT '[]',
-        model_type             TEXT NOT NULL DEFAULT 'chat',
-        supports_streaming     INTEGER NOT NULL DEFAULT 1,
-        supports_tools         INTEGER NOT NULL DEFAULT 0,
-        supports_structured_output INTEGER NOT NULL DEFAULT 0,
-        supports_vision        INTEGER NOT NULL DEFAULT 0,
-        supports_prefill       INTEGER NOT NULL DEFAULT 0,
-        supports_cache         INTEGER NOT NULL DEFAULT 0,
-        supports_web_search    INTEGER NOT NULL DEFAULT 0,
-        supports_batch         INTEGER NOT NULL DEFAULT 0,
-        context_window         INTEGER NOT NULL DEFAULT 0,
-        cache_enabled          INTEGER NOT NULL DEFAULT 1,
-        input_multiplier       REAL NOT NULL DEFAULT 1.0,
-        output_multiplier      REAL NOT NULL DEFAULT 1.0,
-        cache_write_multiplier REAL,
-        cache_read_multiplier  REAL,
-        image_input_multiplier       REAL,
-        audio_input_multiplier       REAL,
-        video_input_multiplier       REAL,
-        image_generation_multiplier  REAL,
-        tts_multiplier               REAL,
-        extra_headers          TEXT NOT NULL DEFAULT '{}',
-        enabled                INTEGER NOT NULL DEFAULT 1,
-        created_at             TEXT NOT NULL,
-        PRIMARY KEY (provider_id, vendor_model_name)
-    )",
-    "CREATE TABLE IF NOT EXISTS api_keys (
-        id               TEXT PRIMARY KEY,
-        key              TEXT NOT NULL UNIQUE,
-        name             TEXT NOT NULL,
-        model_group      TEXT NOT NULL DEFAULT '[]',
-        default_model    TEXT NOT NULL DEFAULT '',
-        fallback_models  TEXT NOT NULL DEFAULT '[]',
-        credit_limit     INTEGER NOT NULL DEFAULT 0,
-        credit_used      INTEGER NOT NULL DEFAULT 0,
-        enabled          INTEGER NOT NULL DEFAULT 1,
-        created_at       TEXT NOT NULL,
-        last_used_at     TEXT
-    )",
-    "CREATE TABLE IF NOT EXISTS usage_records (
-        id                TEXT PRIMARY KEY,
-        api_key_id        TEXT NOT NULL,
-        provider_id       TEXT NOT NULL,
-        vendor_model_name TEXT NOT NULL,
-        input_tokens         INTEGER NOT NULL DEFAULT 0,
-        cache_write_tokens   INTEGER NOT NULL DEFAULT 0,
-        cache_read_tokens    INTEGER NOT NULL DEFAULT 0,
-        output_tokens        INTEGER NOT NULL DEFAULT 0,
-        image_input_units    INTEGER NOT NULL DEFAULT 0,
-        audio_input_seconds  REAL NOT NULL DEFAULT 0,
-        video_input_seconds  REAL NOT NULL DEFAULT 0,
-        image_gen_units      INTEGER NOT NULL DEFAULT 0,
-        tts_characters       INTEGER NOT NULL DEFAULT 0,
-        credits_consumed     INTEGER NOT NULL DEFAULT 0,
-        created_at           TEXT NOT NULL
-    )",
-    "CREATE INDEX IF NOT EXISTS idx_usage_api_key ON usage_records(api_key_id)",
-    "CREATE INDEX IF NOT EXISTS idx_usage_model ON usage_records(provider_id, vendor_model_name)",
-    "CREATE INDEX IF NOT EXISTS idx_usage_created ON usage_records(created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_secondary ON entities(kind, secondary_key)",
+    "CREATE INDEX IF NOT EXISTS idx_kind_enabled ON entities(kind, enabled)",
 ];
+
+// --- Tests ---
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::model::{ApiFormat, ModelType};
+    use crate::models::provider::Vendor;
     use crate::store::ProxyStore;
+    use chrono::Utc;
+    use std::collections::HashMap;
 
     async fn test_store() -> SqliteStore {
         let store = SqliteStore::new(":memory:").await.unwrap();
@@ -516,6 +340,7 @@ mod tests {
             display_name: format!("{name} display"),
             aliases: vec![],
             model_type: ModelType::Chat,
+            api_formats: vec![ApiFormat::OpenAI],
             supports_streaming: true,
             supports_tools: true,
             supports_structured_output: false,
@@ -564,19 +389,15 @@ mod tests {
         let store = test_store().await;
         let p = test_provider("openai-main");
 
-        // Create
         store.upsert_provider(&p).await.unwrap();
 
-        // Read
         let got = store.get_provider("openai-main").await.unwrap().unwrap();
         assert_eq!(got.id, "openai-main");
         assert_eq!(got.api_key, "sk-test-123");
 
-        // List
         let all = store.list_providers().await.unwrap();
         assert_eq!(all.len(), 1);
 
-        // Delete
         store.delete_provider("openai-main").await.unwrap();
         assert!(store.get_provider("openai-main").await.unwrap().is_none());
     }
@@ -705,6 +526,19 @@ mod tests {
         assert_eq!(got.extra_headers.get("X-Custom").unwrap(), "value");
     }
 
+    #[tokio::test]
+    async fn model_with_api_formats() {
+        let store = test_store().await;
+        let mut m = test_model("openai", "gpt-4o");
+        m.api_formats = vec![ApiFormat::OpenAI, ApiFormat::Anthropic];
+        store.upsert_model(&m).await.unwrap();
+
+        let got = store.get_model("openai", "gpt-4o").await.unwrap().unwrap();
+        assert_eq!(got.api_formats.len(), 2);
+        assert!(got.api_formats.contains(&ApiFormat::OpenAI));
+        assert!(got.api_formats.contains(&ApiFormat::Anthropic));
+    }
+
     // --- ApiKey tests ---
 
     #[tokio::test]
@@ -733,14 +567,12 @@ mod tests {
         let k = test_api_key("key1");
         store.upsert_api_key(&k).await.unwrap();
 
-        // Add credits
         store.add_credits_used("key1", 500).await.unwrap();
         store.add_credits_used("key1", 300).await.unwrap();
 
         let got = store.get_api_key_by_id("key1").await.unwrap().unwrap();
         assert_eq!(got.credit_used, 800);
 
-        // Reset
         store.reset_credits("key1").await.unwrap();
         let got = store.get_api_key_by_id("key1").await.unwrap().unwrap();
         assert_eq!(got.credit_used, 0);
@@ -783,7 +615,6 @@ mod tests {
     #[tokio::test]
     async fn migrate_is_idempotent() {
         let store = test_store().await;
-        // Second migrate should not fail
         store.migrate().await.unwrap();
     }
 }

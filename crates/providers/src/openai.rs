@@ -130,6 +130,100 @@ impl OpenAIProvider {
             })
             .collect()
     }
+
+    /// Reassemble a complete response from SSE chunks.
+    /// Some providers return SSE format even for non-streaming requests.
+    fn reassemble_sse_response(sse_text: &str) -> Result<Value, ProviderError> {
+        let mut content = String::new();
+        let mut model = String::new();
+        let mut finish_reason = None;
+        let mut usage = None;
+        let mut id = String::new();
+        let mut tool_args: std::collections::HashMap<usize, (String, String, String)> = std::collections::HashMap::new();
+
+        for line in sse_text.lines() {
+            let data = match line.strip_prefix("data: ") {
+                Some(d) if d != "[DONE]" => d,
+                _ => continue,
+            };
+            let chunk: Value = match serde_json::from_str(data) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            if id.is_empty() {
+                if let Some(cid) = chunk.get("id").and_then(|v| v.as_str()) {
+                    id = cid.to_string();
+                }
+            }
+            if model.is_empty() {
+                if let Some(m) = chunk.get("model").and_then(|v| v.as_str()) {
+                    model = m.to_string();
+                }
+            }
+
+            if let Some(choice) = chunk.get("choices").and_then(|c| c.get(0)) {
+                if let Some(delta) = choice.get("delta").and_then(|d| d.get("content")).and_then(|c| c.as_str()) {
+                    content.push_str(delta);
+                }
+                if let Some(tcs) = choice.get("delta").and_then(|d| d.get("tool_calls")).and_then(|t| t.as_array()) {
+                    for tc in tcs {
+                        let idx = tc.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
+                        if let Some(tc_id) = tc.get("id").and_then(|v| v.as_str()) {
+                            let name = tc.get("function").and_then(|f| f.get("name")).and_then(|n| n.as_str()).unwrap_or("").to_string();
+                            tool_args.insert(idx, (tc_id.to_string(), name, String::new()));
+                        }
+                        if let Some(args) = tc.get("function").and_then(|f| f.get("arguments")).and_then(|a| a.as_str()) {
+                            if let Some(entry) = tool_args.get_mut(&idx) {
+                                entry.2.push_str(args);
+                            }
+                        }
+                    }
+                }
+                if let Some(fr) = choice.get("finish_reason").and_then(|f| f.as_str()) {
+                    finish_reason = Some(fr.to_string());
+                }
+            }
+
+            if let Some(u) = chunk.get("usage") {
+                if u.get("total_tokens").and_then(|t| t.as_u64()).unwrap_or(0) > 0 {
+                    usage = Some(u.clone());
+                }
+            }
+        }
+
+        let mut tool_calls = Vec::new();
+        let mut sorted_indices: Vec<usize> = tool_args.keys().cloned().collect();
+        sorted_indices.sort();
+        for idx in sorted_indices {
+            let (tc_id, name, args) = &tool_args[&idx];
+            tool_calls.push(serde_json::json!({
+                "id": tc_id,
+                "type": "function",
+                "function": { "name": name, "arguments": args }
+            }));
+        }
+
+        let mut message = serde_json::json!({"role": "assistant"});
+        if !content.is_empty() {
+            message["content"] = Value::String(content);
+        }
+        if !tool_calls.is_empty() {
+            message["tool_calls"] = Value::Array(tool_calls);
+        }
+
+        let mut resp = serde_json::json!({
+            "id": id,
+            "object": "chat.completion",
+            "model": model,
+            "choices": [{"index": 0, "message": message, "finish_reason": finish_reason}],
+        });
+        if let Some(u) = usage {
+            resp["usage"] = u;
+        }
+
+        Ok(resp)
+    }
 }
 
 #[async_trait]
@@ -196,10 +290,31 @@ impl Provider for OpenAIProvider {
             ));
         }
 
-        let resp_body: Value = resp
-            .json()
+        let resp_text = resp
+            .text()
             .await
             .map_err(|e| ProviderError::InvalidResponse(e.to_string()))?;
+
+        tracing::debug!(
+            response_body = %resp_text.chars().take(500).collect::<String>(),
+            "OpenAI provider raw response"
+        );
+
+        // Try direct JSON parse first; if it fails and the response looks like SSE,
+        // reassemble from SSE chunks (some providers return SSE even for non-streaming requests)
+        let resp_body: Value = match serde_json::from_str(&resp_text) {
+            Ok(v) => v,
+            Err(_) if resp_text.starts_with("data: ") => {
+                Self::reassemble_sse_response(&resp_text)?
+            }
+            Err(e) => {
+                return Err(ProviderError::InvalidResponse(format!(
+                    "Failed to parse JSON: {}. Body starts with: {}",
+                    e,
+                    resp_text.chars().take(200).collect::<String>()
+                )));
+            }
+        };
 
         if status >= 400 {
             let message = resp_body

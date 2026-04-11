@@ -1,19 +1,19 @@
 # 测试 Checklist
 
 > AI 生成和维护，人审核和勾选。
-> 当前迭代：004b-admin-web
+> 当前迭代：005a-messages-streaming
 
 ## 本迭代新增
 
-- [x] 后端: `cargo build -p lortex-server` 编译通过（含 rust-embed）
-- [x] CLI: `--with-admin-web` 参数可见
-- [x] 前端: `npm run build` 构建成功
-- [x] 全量: `cargo test --workspace` → 288 tests passed, 0 failed
-- [x] 手动: 启动 proxy --with-admin-web，访问 /admin/web/ 可见登录页
+- [x] proto/anthropic streaming: `cargo test -p lortex-server proto::anthropic` → 11 tests passed
+- [x] messages handler: stream=true 返回 Anthropic SSE 格式
+- [x] api_formats: Model 支持多 API 格式，handler 自动选择 Provider 实现
+- [x] SSE 兼容: OpenAI provider 自动处理 SSE 格式的 non-streaming 响应
+- [x] KV store: SQLite 改为 KV+JSON 模式，17 个 store 测试通过
+- [x] 全量: `cargo test --workspace` → 293 tests passed, 0 failed
 
 ## 回归测试
 
-- [x] server: `cargo test -p lortex-server` → 72 tests passed
-- [x] core + executor + guardrails + memory + tools: 167 tests passed
-- [x] router: `cargo test -p lortex-router` → 40 tests passed
-- [x] e2e: 9 tests passed
+- [x] server: `cargo test -p lortex-server` → 76 tests passed
+- [x] proxy API: `cargo test -p lortex-server --test proxy_api` → 15 tests passed
+- [x] core + router + others: 216 tests passed

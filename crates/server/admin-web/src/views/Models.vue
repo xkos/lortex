@@ -15,6 +15,11 @@
       </el-table-column>
       <el-table-column prop="display_name" label="Name" width="180" />
       <el-table-column prop="model_type" label="Type" width="100" />
+      <el-table-column label="API Formats" width="160">
+        <template #default="{ row }">
+          <el-tag v-for="f in row.api_formats" :key="f" size="small" style="margin: 2px;">{{ f }}</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="Multiplier" width="160">
         <template #default="{ row }">
           In: {{ row.input_multiplier }}x / Out: {{ row.output_multiplier }}x
@@ -75,6 +80,12 @@
             <el-option label="TTS" value="tts" />
             <el-option label="STT" value="stt" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="API Formats">
+          <el-checkbox-group v-model="form.api_formats">
+            <el-checkbox label="openai" value="openai">OpenAI</el-checkbox>
+            <el-checkbox label="anthropic" value="anthropic">Anthropic</el-checkbox>
+          </el-checkbox-group>
         </el-form-item>
 
         <el-divider>Capabilities</el-divider>
@@ -140,6 +151,7 @@ const emptyForm = () => ({
   display_name: '',
   aliases: [] as string[],
   model_type: 'chat',
+  api_formats: ['openai'] as string[],
   supports_streaming: true,
   supports_tools: false,
   supports_structured_output: false,

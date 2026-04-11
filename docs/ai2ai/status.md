@@ -11,8 +11,8 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 ## 当前迭代
 
-- 当前活跃：004b-admin-web（待验收）
-- 分支：iter/004b-admin-web
+- 当前活跃：005a-messages-streaming（待验收）
+- 分支：iter/005a-messages-streaming
 
 ---
 
@@ -22,7 +22,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 |------|------|---------|
 | core | ✅ 可用 | 71 tests |
 | executor | ✅ 可用 | 13 tests |
-| providers | ✅ 可用（真实 SSE streaming） | 0 tests |
+| providers | ✅ 可用（真实 SSE + SSE 响应兼容） | 0 tests |
 | protocols | 🔨 部分 | 0 tests |
 | tools | ✅ 可用 | 24 tests |
 | swarm | ✅ 可用 | 0 tests |
@@ -30,24 +30,35 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 | memory | ✅ 可用 | 24 tests |
 | macros | ✅ 可用 | 0 tests |
 | router | ✅ 可用 | 43 tests |
-| server | ✅ 可用 | 72 tests |
-| admin-web | ✅ 可用 | — (前端，手动验证) |
+| server | ✅ 可用 | 76 tests |
+| admin-web | ✅ 可用 | — (前端) |
 
 ---
 
-## 端到端联通状态
+## Proxy 功能完成度
 
-- ✅ Proxy 完整链路（鉴权 → 模型解析 → 上游调用 → credit 扣减 → 日志）
-- ✅ Admin Web 管理后台（Provider/Model/ApiKey CRUD）
-- ✅ Admin API `/admin/api/v1/*`
-- ✅ Proxy `/v1/chat/completions`（non-streaming + streaming SSE）
-- ✅ Proxy `/v1/messages`（Anthropic 格式）
-- ✅ Proxy `/v1/models`
+| 端点 | Non-streaming | Streaming |
+|------|:---:|:---:|
+| `/v1/chat/completions` (OpenAI) | ✅ | ✅ |
+| `/v1/messages` (Anthropic) | ✅ | ✅ |
+| `/v1/models` | ✅ | — |
+| Admin API `/admin/api/v1/*` | ✅ | — |
+| Admin Web `/admin/web/*` | ✅ | — |
+
+| 功能 | 状态 |
+|------|:---:|
+| API Key 鉴权 | ✅ |
+| Credit 扣减 | ✅ |
+| 模型寻址（PROXY_MANAGED/ID/别名） | ✅ |
+| api_formats 协议自动选择 | ✅ |
+| SSE 响应兼容（中转服务） | ✅ |
+| 结构化日志 | ✅ |
+| Admin Web 管理后台 | ✅ |
 
 ---
 
 ## 下一步建议
 
-1. 真实厂商端到端验证（启动 proxy，接入 Cursor/Claude Code）
-2. 修复上游响应解析 bug（之前 curl 测试发现的 "Invalid response" 问题）
-3. FallbackRouter + 多模态适配
+1. 真实厂商端到端验证（删除旧 db，重新配置，测试 cursorlink）
+2. FallbackRouter（故障自动切换）
+3. /v1/embeddings 实现
