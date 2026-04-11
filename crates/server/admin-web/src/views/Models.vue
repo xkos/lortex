@@ -212,8 +212,13 @@ async function handleSave() {
     cache_read_multiplier: form.value.cache_read_multiplier || null,
   }
   try {
-    await api.post('/models', payload)
-    ElMessage.success('Model created')
+    if (isEdit.value) {
+      await api.put(`/models/${form.value.provider_id}/${form.value.vendor_model_name}`, payload)
+      ElMessage.success('Model updated')
+    } else {
+      await api.post('/models', payload)
+      ElMessage.success('Model created')
+    }
     dialogVisible.value = false
     await fetchModels()
   } catch (e: any) {

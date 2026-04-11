@@ -178,6 +178,26 @@ async fn model_crud() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
+    // Update
+    let resp = app
+        .clone()
+        .oneshot(admin_request(
+            "PUT",
+            "/admin/api/v1/models/openai/gpt-4o",
+            Some(r#"{"display_name":"GPT-4o Updated","input_multiplier":5.0,"enabled":false}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let updated: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(updated["display_name"], "GPT-4o Updated");
+    assert_eq!(updated["input_multiplier"], 5.0);
+    assert_eq!(updated["enabled"], false);
+    // Unchanged fields preserved
+    assert_eq!(updated["output_multiplier"], 10.0);
+    assert_eq!(updated["supports_tools"], true);
+
     // Delete
     let resp = app
         .clone()
