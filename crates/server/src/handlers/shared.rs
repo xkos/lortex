@@ -1,5 +1,6 @@
 //! Shared proxy handler logic — resolve_model, build_provider, map errors, fallback
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
@@ -11,6 +12,24 @@ use crate::handlers::provider_builder::build_llm_provider;
 use crate::models::model::ApiFormat;
 use crate::models::{ApiKey, Model};
 use crate::state::AppState;
+
+/// 从客户端请求中提取需要透传给上游 provider 的 headers
+pub fn extract_passthrough_headers(headers: &axum::http::HeaderMap) -> HashMap<String, String> {
+    // 透传的 header 前缀/名称列表
+    const PASSTHROUGH_HEADERS: &[&str] = &[
+        "anthropic-beta",
+    ];
+
+    let mut result = HashMap::new();
+    for name in PASSTHROUGH_HEADERS {
+        if let Some(value) = headers.get(*name) {
+            if let Ok(v) = value.to_str() {
+                result.insert(name.to_string(), v.to_string());
+            }
+        }
+    }
+    result
+}
 
 /// Generic proxy error before converting to format-specific responses.
 #[derive(Debug)]
@@ -73,6 +92,16 @@ pub async fn build_provider(
     model: &Model,
     preferred_format: &ApiFormat,
 ) -> Result<Arc<dyn Provider>, ProxyError> {
+    build_provider_with_headers(state, model, preferred_format, &HashMap::new()).await
+}
+
+/// 根据 Provider 配置构建 lortex Provider 实例，合并客户端 headers
+pub async fn build_provider_with_headers(
+    state: &AppState,
+    model: &Model,
+    preferred_format: &ApiFormat,
+    client_headers: &HashMap<String, String>,
+) -> Result<Arc<dyn Provider>, ProxyError> {
     let provider_config = state
         .store
         .get_provider(&model.provider_id)
@@ -89,7 +118,7 @@ pub async fn build_provider(
         )));
     }
 
-    Ok(build_llm_provider(&provider_config, model, preferred_format))
+    Ok(build_llm_provider(&provider_config, model, preferred_format, client_headers))
 }
 
 /// Map upstream provider error to ProxyError
@@ -144,6 +173,7 @@ pub async fn complete_with_fallback(
     api_key: &ApiKey,
     model_name: &str,
     preferred_format: &ApiFormat,
+    client_headers: &HashMap<String, String>,
     mut build_request: impl FnMut(&Model) -> CompletionRequest,
 ) -> Result<(CompletionResponse, Model), ProxyError> {
     let models = resolve_models_with_fallback(state, api_key, model_name).await?;
@@ -166,7 +196,7 @@ pub async fn complete_with_fallback(
         }
 
         // 构建 provider
-        let provider = match build_provider(state, model, preferred_format).await {
+        let provider = match build_provider_with_headers(state, model, preferred_format, client_headers).await {
             Ok(p) => p,
             Err(e) => {
                 tracing::warn!(

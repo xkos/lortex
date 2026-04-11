@@ -32,15 +32,17 @@ fn to_anthropic_error(e: ProxyError) -> (StatusCode, Json<AnthropicError>) {
 pub async fn messages(
     Extension(state): Extension<AppState>,
     Extension(api_key): Extension<ApiKey>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<MessagesRequest>,
 ) -> Response {
+    let client_headers = shared::extract_passthrough_headers(&headers);
     if req.stream {
-        match messages_stream(state, api_key, req).await {
+        match messages_stream(state, api_key, client_headers, req).await {
             Ok(sse) => sse.into_response(),
             Err((status, json)) => (status, json).into_response(),
         }
     } else {
-        match messages_blocking(state, api_key, req).await {
+        match messages_blocking(state, api_key, client_headers, req).await {
             Ok(json) => json.into_response(),
             Err((status, json)) => (status, json).into_response(),
         }
@@ -51,6 +53,7 @@ pub async fn messages(
 async fn messages_blocking(
     state: AppState,
     api_key: ApiKey,
+    client_headers: std::collections::HashMap<String, String>,
     req: MessagesRequest,
 ) -> Result<Json<MessagesResponse>, (StatusCode, Json<AnthropicError>)> {
     let start = std::time::Instant::now();
@@ -60,6 +63,7 @@ async fn messages_blocking(
         &api_key,
         &req.model,
         &ApiFormat::Anthropic,
+        &client_headers,
         |model| {
             let mut lortex_req = anthropic_request_to_lortex(&req);
             lortex_req.model = model.vendor_model_name.clone();
@@ -98,6 +102,7 @@ async fn messages_blocking(
 async fn messages_stream(
     state: AppState,
     api_key: ApiKey,
+    client_headers: std::collections::HashMap<String, String>,
     req: MessagesRequest,
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<AnthropicError>)> {
     // 解析主模型 + fallback，选第一个可用的
@@ -113,7 +118,7 @@ async fn messages_stream(
             tracing::info!(provider = %m.provider_id, "Skipping circuit-broken provider (stream)");
             continue;
         }
-        match shared::build_provider(&state, m, &ApiFormat::Anthropic).await {
+        match shared::build_provider_with_headers(&state, m, &ApiFormat::Anthropic, &client_headers).await {
             Ok(p) => {
                 model = Some(m.clone());
                 provider = Some(p);
@@ -201,7 +206,7 @@ async fn messages_stream(
                     let block_start = ContentBlockStartEvent {
                         event_type: "content_block_start".into(),
                         index: next_block_index,
-                        content_block: ContentBlock::Text { text: String::new() },
+                        content_block: ContentBlock::Text { text: String::new(), cache_control: None },
                     };
                     events.push(
                         Event::default()
@@ -271,6 +276,7 @@ async fn messages_stream(
                         id,
                         name,
                         input: serde_json::json!({}),
+                        cache_control: None,
                     },
                 };
                 events.push(

@@ -257,9 +257,23 @@ use crate::proto::anthropic::{
 pub fn anthropic_request_to_lortex(req: &MessagesRequest) -> CompletionRequest {
     let mut messages = Vec::new();
 
-    // System prompt as first message
+    // System prompt as first message (string or content blocks → extract text)
     if let Some(system) = &req.system {
-        messages.push(Message::system(system.clone()));
+        let system_text = match system {
+            Value::String(s) => s.clone(),
+            Value::Array(blocks) => {
+                // Extract text from content blocks
+                blocks
+                    .iter()
+                    .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            }
+            _ => String::new(),
+        };
+        if !system_text.is_empty() {
+            messages.push(Message::system(system_text));
+        }
     }
 
     // Convert messages
@@ -278,17 +292,17 @@ pub fn anthropic_request_to_lortex(req: &MessagesRequest) -> CompletionRequest {
             AnthropicContent::Blocks(blocks) => {
                 for block in blocks {
                     match block {
-                        ContentBlock::Text { text } => {
+                        ContentBlock::Text { text, .. } => {
                             parts.push(LortexContent::Text { text: text.clone() });
                         }
-                        ContentBlock::Image { source } => {
+                        ContentBlock::Image { source, .. } => {
                             let url = source.url.clone().unwrap_or_default();
                             parts.push(LortexContent::Image {
                                 url,
                                 media_type: source.media_type.clone(),
                             });
                         }
-                        ContentBlock::ToolUse { id, name, input } => {
+                        ContentBlock::ToolUse { id, name, input, .. } => {
                             parts.push(LortexContent::ToolCall {
                                 id: id.clone(),
                                 name: name.clone(),
@@ -299,6 +313,7 @@ pub fn anthropic_request_to_lortex(req: &MessagesRequest) -> CompletionRequest {
                             tool_use_id,
                             content,
                             is_error,
+                            ..
                         } => {
                             parts.push(LortexContent::ToolResult {
                                 call_id: tool_use_id.clone(),
@@ -354,13 +369,14 @@ pub fn lortex_response_to_anthropic(
     for part in &resp.message.content {
         match part {
             LortexContent::Text { text } => {
-                content_blocks.push(ContentBlock::Text { text: text.clone() });
+                content_blocks.push(ContentBlock::Text { text: text.clone(), cache_control: None });
             }
             LortexContent::ToolCall { id, name, arguments } => {
                 content_blocks.push(ContentBlock::ToolUse {
                     id: id.clone(),
                     name: name.clone(),
                     input: arguments.clone(),
+                    cache_control: None,
                 });
             }
             _ => {}

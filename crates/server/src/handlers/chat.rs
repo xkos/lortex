@@ -35,15 +35,17 @@ fn to_oai_error(e: ProxyError) -> (StatusCode, Json<ErrorResponse>) {
 pub async fn chat_completions(
     Extension(state): Extension<AppState>,
     Extension(api_key): Extension<ApiKey>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<ChatCompletionRequest>,
 ) -> Response {
+    let client_headers = shared::extract_passthrough_headers(&headers);
     if req.stream {
-        match chat_completions_stream(state, api_key, req).await {
+        match chat_completions_stream(state, api_key, client_headers, req).await {
             Ok(sse) => sse.into_response(),
             Err((status, json)) => (status, json).into_response(),
         }
     } else {
-        match chat_completions_blocking(state, api_key, req).await {
+        match chat_completions_blocking(state, api_key, client_headers, req).await {
             Ok(json) => json.into_response(),
             Err((status, json)) => (status, json).into_response(),
         }
@@ -54,6 +56,7 @@ pub async fn chat_completions(
 async fn chat_completions_blocking(
     state: AppState,
     api_key: ApiKey,
+    client_headers: std::collections::HashMap<String, String>,
     req: ChatCompletionRequest,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let start = std::time::Instant::now();
@@ -63,6 +66,7 @@ async fn chat_completions_blocking(
         &api_key,
         &req.model,
         &ApiFormat::OpenAI,
+        &client_headers,
         |model| {
             let mut lortex_req = openai_request_to_lortex(&req);
             lortex_req.model = model.vendor_model_name.clone();
@@ -102,6 +106,7 @@ async fn chat_completions_blocking(
 async fn chat_completions_stream(
     state: AppState,
     api_key: ApiKey,
+    client_headers: std::collections::HashMap<String, String>,
     req: ChatCompletionRequest,
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
     // 解析主模型 + fallback，选第一个可用的
@@ -117,7 +122,7 @@ async fn chat_completions_stream(
             tracing::info!(provider = %m.provider_id, "Skipping circuit-broken provider (stream)");
             continue;
         }
-        match shared::build_provider(&state, m, &ApiFormat::OpenAI).await {
+        match shared::build_provider_with_headers(&state, m, &ApiFormat::OpenAI, &client_headers).await {
             Ok(p) => {
                 model = Some(m.clone());
                 provider = Some(p);
