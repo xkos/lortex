@@ -154,6 +154,91 @@ impl AnthropicError {
 }
 
 // ============================================================================
+// Streaming SSE Events
+// ============================================================================
+
+/// message_start event
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageStartEvent {
+    #[serde(rename = "type")]
+    pub event_type: String,
+    pub message: MessageStartData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageStartData {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    pub role: String,
+    pub content: Vec<ContentBlock>,
+    pub model: String,
+    pub stop_reason: Option<String>,
+    pub usage: AnthropicUsage,
+}
+
+/// content_block_start event
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContentBlockStartEvent {
+    #[serde(rename = "type")]
+    pub event_type: String,
+    pub index: usize,
+    pub content_block: ContentBlock,
+}
+
+/// content_block_delta event
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContentBlockDeltaEvent {
+    #[serde(rename = "type")]
+    pub event_type: String,
+    pub index: usize,
+    pub delta: DeltaBlock,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum DeltaBlock {
+    #[serde(rename = "text_delta")]
+    TextDelta { text: String },
+    #[serde(rename = "input_json_delta")]
+    InputJsonDelta { partial_json: String },
+}
+
+/// content_block_stop event
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContentBlockStopEvent {
+    #[serde(rename = "type")]
+    pub event_type: String,
+    pub index: usize,
+}
+
+/// message_delta event
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageDeltaEvent {
+    #[serde(rename = "type")]
+    pub event_type: String,
+    pub delta: MessageDelta,
+    pub usage: MessageDeltaUsage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageDelta {
+    pub stop_reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageDeltaUsage {
+    pub output_tokens: u32,
+}
+
+/// message_stop event
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageStopEvent {
+    #[serde(rename = "type")]
+    pub event_type: String,
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -260,5 +345,64 @@ mod tests {
         let err = AnthropicError::invalid_request("model not found");
         let json = serde_json::to_string(&err).unwrap();
         assert!(json.contains("invalid_request_error"));
+    }
+
+    #[test]
+    fn message_start_event_serialize() {
+        let event = MessageStartEvent {
+            event_type: "message_start".into(),
+            message: MessageStartData {
+                id: "msg_123".into(),
+                msg_type: "message".into(),
+                role: "assistant".into(),
+                content: vec![],
+                model: "claude-sonnet-4-20250514".into(),
+                stop_reason: None,
+                usage: AnthropicUsage {
+                    input_tokens: 10,
+                    output_tokens: 0,
+                    cache_creation_input_tokens: None,
+                    cache_read_input_tokens: None,
+                },
+            },
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("message_start"));
+        assert!(json.contains("msg_123"));
+    }
+
+    #[test]
+    fn content_block_delta_text() {
+        let event = ContentBlockDeltaEvent {
+            event_type: "content_block_delta".into(),
+            index: 0,
+            delta: DeltaBlock::TextDelta { text: "Hello".into() },
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("text_delta"));
+        assert!(json.contains("Hello"));
+    }
+
+    #[test]
+    fn content_block_delta_tool() {
+        let event = ContentBlockDeltaEvent {
+            event_type: "content_block_delta".into(),
+            index: 1,
+            delta: DeltaBlock::InputJsonDelta { partial_json: r#"{"q":"#.into() },
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("input_json_delta"));
+    }
+
+    #[test]
+    fn message_delta_event_serialize() {
+        let event = MessageDeltaEvent {
+            event_type: "message_delta".into(),
+            delta: MessageDelta { stop_reason: "end_turn".into() },
+            usage: MessageDeltaUsage { output_tokens: 42 },
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("end_turn"));
+        assert!(json.contains("42"));
     }
 }
