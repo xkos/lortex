@@ -405,19 +405,18 @@ impl Provider for OpenAIProvider {
         };
 
         // Parse usage
-        let usage = resp_body.get("usage").map(|u| Usage {
-            prompt_tokens: u
-                .get("prompt_tokens")
+        let usage = resp_body.get("usage").map(|u| {
+            let cached = u.get("prompt_tokens_details")
+                .and_then(|d| d.get("cached_tokens"))
                 .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
-            completion_tokens: u
-                .get("completion_tokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
-            total_tokens: u
-                .get("total_tokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
+                .unwrap_or(0) as u32;
+            Usage {
+                prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                completion_tokens: u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: cached,
+            }
         });
 
         Ok(CompletionResponse {
@@ -587,10 +586,18 @@ impl Provider for OpenAIProvider {
                         };
 
                         // Check for usage in the same or subsequent chunk
-                        let usage = chunk_json.get("usage").map(|u| Usage {
-                            prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                            completion_tokens: u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                            total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                        let usage = chunk_json.get("usage").map(|u| {
+                            let cached = u.get("prompt_tokens_details")
+                                .and_then(|d| d.get("cached_tokens"))
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0) as u32;
+                            Usage {
+                                prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                                completion_tokens: u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                                total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                                cache_creation_input_tokens: 0,
+                                cache_read_input_tokens: cached,
+                            }
                         });
 
                         yield StreamEvent::Done {

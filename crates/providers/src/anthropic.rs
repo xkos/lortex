@@ -292,22 +292,16 @@ impl Provider for AnthropicProvider {
                 _ => FinishReason::Stop,
             });
 
-        let usage = resp_body.get("usage").map(|u| Usage {
-            prompt_tokens: u
-                .get("input_tokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
-            completion_tokens: u
-                .get("output_tokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32,
-            total_tokens: (u
-                .get("input_tokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0)
-                + u.get("output_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0)) as u32,
+        let usage = resp_body.get("usage").map(|u| {
+            let input = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let output = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            Usage {
+                prompt_tokens: input,
+                completion_tokens: output,
+                total_tokens: input + output,
+                cache_creation_input_tokens: u.get("cache_creation_input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                cache_read_input_tokens: u.get("cache_read_input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+            }
         });
 
         Ok(CompletionResponse {
@@ -471,6 +465,8 @@ impl Provider for AnthropicProvider {
                                         prompt_tokens: input_tokens,
                                         completion_tokens: 0,
                                         total_tokens: input_tokens,
+                                        cache_creation_input_tokens: u.get("cache_creation_input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                                        cache_read_input_tokens: u.get("cache_read_input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                                     });
                                 }
                             }

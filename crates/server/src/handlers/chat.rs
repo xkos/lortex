@@ -78,7 +78,8 @@ async fn chat_completions_blocking(
     if let Some(usage) = &lortex_resp.usage {
         let credits = deduct_credits(
             &state, &api_key, &model,
-            usage.prompt_tokens, usage.completion_tokens, 0, 0,
+            usage.prompt_tokens, usage.completion_tokens,
+            usage.cache_creation_input_tokens, usage.cache_read_input_tokens,
             "/v1/chat/completions", elapsed.as_millis() as u64,
         ).await.unwrap_or(0);
 
@@ -163,6 +164,8 @@ async fn chat_completions_stream(
                     let prompt = u.prompt_tokens;
                     let completion = u.completion_tokens;
                     let total = u.total_tokens;
+                    let cache_creation = u.cache_creation_input_tokens;
+                    let cache_read = u.cache_read_input_tokens;
                     let state = state.clone();
                     let api_key = api_key.clone();
                     let model = model.clone();
@@ -170,7 +173,7 @@ async fn chat_completions_stream(
                     tokio::spawn(async move {
                         let credits = deduct_credits(
                             &state, &api_key, &model,
-                            prompt, completion, 0, 0,
+                            prompt, completion, cache_creation, cache_read,
                             "/v1/chat/completions", 0,
                         ).await.unwrap_or(0);
                         tracing::info!(

@@ -172,6 +172,8 @@ mod tests {
                 prompt_tokens: 100,
                 completion_tokens: 50,
                 total_tokens: 150,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
             }),
         };
         let json = serde_json::to_string(&event).unwrap();
