@@ -8,7 +8,7 @@ use sqlx::sqlite::{SqlitePool, SqliteRow};
 use sqlx::Row;
 
 use crate::models::api_key::ApiKey;
-use crate::models::model::{Model, ModelType};
+use crate::models::model::{ApiFormat, Model, ModelType};
 use crate::models::provider::{Provider, Vendor};
 use crate::store::error::StoreError;
 use crate::store::traits::ProxyStore;
@@ -59,6 +59,9 @@ fn row_to_model(row: &SqliteRow) -> Result<Model, StoreError> {
     let aliases: Vec<String> = serde_json::from_str(&aliases_json).unwrap_or_default();
     let headers_json: String = row.get("extra_headers");
     let extra_headers: HashMap<String, String> = serde_json::from_str(&headers_json).unwrap_or_default();
+    let api_formats_json: String = row.get("api_formats");
+    let api_formats_strs: Vec<String> = serde_json::from_str(&api_formats_json).unwrap_or_default();
+    let api_formats = api_formats_strs.iter().map(|s| ApiFormat::from_str(s)).collect();
 
     Ok(Model {
         provider_id: row.get("provider_id"),
@@ -66,6 +69,7 @@ fn row_to_model(row: &SqliteRow) -> Result<Model, StoreError> {
         display_name: row.get("display_name"),
         aliases,
         model_type: ModelType::from_str(row.get("model_type")),
+        api_formats,
         supports_streaming: row.get::<i32, _>("supports_streaming") != 0,
         supports_tools: row.get::<i32, _>("supports_tools") != 0,
         supports_structured_output: row.get::<i32, _>("supports_structured_output") != 0,
@@ -225,10 +229,14 @@ impl ProxyStore for SqliteStore {
     async fn upsert_model(&self, m: &Model) -> Result<(), StoreError> {
         let aliases_json = serde_json::to_string(&m.aliases)?;
         let headers_json = serde_json::to_string(&m.extra_headers)?;
+        let api_formats_json = serde_json::to_string(
+            &m.api_formats.iter().map(|f| f.as_str()).collect::<Vec<_>>()
+        )?;
 
         sqlx::query(
             "INSERT INTO models (
                 provider_id, vendor_model_name, display_name, aliases, model_type,
+                api_formats,
                 supports_streaming, supports_tools, supports_structured_output,
                 supports_vision, supports_prefill, supports_cache,
                 supports_web_search, supports_batch, context_window,
@@ -240,6 +248,7 @@ impl ProxyStore for SqliteStore {
                 extra_headers, enabled, created_at
              ) VALUES (
                 ?, ?, ?, ?, ?,
+                ?,
                 ?, ?, ?,
                 ?, ?, ?,
                 ?, ?, ?,
@@ -254,6 +263,7 @@ impl ProxyStore for SqliteStore {
                 display_name = excluded.display_name,
                 aliases = excluded.aliases,
                 model_type = excluded.model_type,
+                api_formats = excluded.api_formats,
                 supports_streaming = excluded.supports_streaming,
                 supports_tools = excluded.supports_tools,
                 supports_structured_output = excluded.supports_structured_output,
@@ -281,6 +291,7 @@ impl ProxyStore for SqliteStore {
         .bind(&m.display_name)
         .bind(&aliases_json)
         .bind(m.model_type.as_str())
+        .bind(&api_formats_json)
         .bind(m.supports_streaming as i32)
         .bind(m.supports_tools as i32)
         .bind(m.supports_structured_output as i32)
@@ -427,6 +438,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
         display_name           TEXT NOT NULL,
         aliases                TEXT NOT NULL DEFAULT '[]',
         model_type             TEXT NOT NULL DEFAULT 'chat',
+        api_formats            TEXT NOT NULL DEFAULT '[\"openai\"]',
         supports_streaming     INTEGER NOT NULL DEFAULT 1,
         supports_tools         INTEGER NOT NULL DEFAULT 0,
         supports_structured_output INTEGER NOT NULL DEFAULT 0,
@@ -516,6 +528,7 @@ mod tests {
             display_name: format!("{name} display"),
             aliases: vec![],
             model_type: ModelType::Chat,
+            api_formats: vec![ApiFormat::OpenAI],
             supports_streaming: true,
             supports_tools: true,
             supports_structured_output: false,

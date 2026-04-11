@@ -10,7 +10,7 @@ use axum::{
 use chrono::Utc;
 use serde::Deserialize;
 
-use crate::models::model::{Model, ModelType};
+use crate::models::model::{ApiFormat, Model, ModelType};
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -22,6 +22,8 @@ pub struct CreateModelRequest {
     pub aliases: Vec<String>,
     #[serde(default = "default_chat")]
     pub model_type: String,
+    #[serde(default = "default_api_formats")]
+    pub api_formats: Vec<String>,
 
     #[serde(default = "default_true")]
     pub supports_streaming: bool,
@@ -68,6 +70,7 @@ pub struct CreateModelRequest {
 fn default_true() -> bool { true }
 fn default_one() -> f64 { 1.0 }
 fn default_chat() -> String { "chat".into() }
+fn default_api_formats() -> Vec<String> { vec!["openai".into()] }
 
 pub async fn list(
     State(state): State<AppState>,
@@ -97,6 +100,7 @@ pub async fn create(
         display_name: req.display_name,
         aliases: req.aliases,
         model_type: ModelType::from_str(&req.model_type),
+        api_formats: req.api_formats.iter().map(|s| ApiFormat::from_str(s)).collect(),
         supports_streaming: req.supports_streaming,
         supports_tools: req.supports_tools,
         supports_structured_output: req.supports_structured_output,

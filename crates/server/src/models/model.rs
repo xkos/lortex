@@ -39,6 +39,30 @@ impl ModelType {
     }
 }
 
+/// 模型支持的 API 格式
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ApiFormat {
+    OpenAI,
+    Anthropic,
+}
+
+impl ApiFormat {
+    pub fn as_str(&self) -> &str {
+        match self {
+            ApiFormat::OpenAI => "openai",
+            ApiFormat::Anthropic => "anthropic",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "anthropic" => ApiFormat::Anthropic,
+            _ => ApiFormat::OpenAI,
+        }
+    }
+}
+
 /// 模型配置，通过 provider_id 隐式关联到 Provider
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Model {
@@ -52,6 +76,8 @@ pub struct Model {
     pub aliases: Vec<String>,
     /// 模型类型
     pub model_type: ModelType,
+    /// 模型支持的 API 格式（可多选）
+    pub api_formats: Vec<ApiFormat>,
 
     // --- 能力声明 ---
     pub supports_streaming: bool,

@@ -148,7 +148,7 @@ pub async fn deduct_credits(
 mod tests {
     use super::*;
     use axum::body::Body;
-    use crate::models::model::{Model, ModelType};
+    use crate::models::model::{ApiFormat, Model, ModelType};
     use std::collections::HashMap;
 
     fn test_model() -> Model {
@@ -158,6 +158,7 @@ mod tests {
             display_name: "GPT-4o".into(),
             aliases: vec![],
             model_type: ModelType::Chat,
+            api_formats: vec![ApiFormat::OpenAI],
             supports_streaming: true,
             supports_tools: true,
             supports_structured_output: false,
