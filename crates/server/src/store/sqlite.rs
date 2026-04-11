@@ -8,6 +8,7 @@ use sqlx::sqlite::{SqlitePool, SqliteRow};
 use sqlx::Row;
 
 use crate::models::api_key::ApiKey;
+use crate::models::health::ProviderHealthStatus;
 use crate::models::model::Model;
 use crate::models::provider::Provider;
 use crate::models::usage::UsageRecord;
@@ -381,6 +382,44 @@ impl ProxyStore for SqliteStore {
 
         Ok(summary)
     }
+
+    // --- Health ---
+
+    async fn get_health_status(
+        &self,
+        provider_id: &str,
+    ) -> Result<Option<ProviderHealthStatus>, StoreError> {
+        let row = sqlx::query(
+            "SELECT data FROM entities WHERE kind = 'health_status' AND id = ?",
+        )
+        .bind(provider_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        match row {
+            Some(r) => Ok(Some(parse_json(&r)?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn upsert_health_status(
+        &self,
+        status: &ProviderHealthStatus,
+    ) -> Result<(), StoreError> {
+        let data = serde_json::to_string(status)?;
+        let now = chrono::Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO entities (kind, id, secondary_key, enabled, data, created_at)
+             VALUES ('health_status', ?, NULL, 1, ?, ?)
+             ON CONFLICT(kind, id) DO UPDATE SET data = excluded.data",
+        )
+        .bind(&status.provider_id)
+        .bind(&data)
+        .bind(&now)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
 }
 
 // --- Migration SQL ---
@@ -703,6 +742,44 @@ mod tests {
         let got = store.get_api_key_by_id("key1").await.unwrap().unwrap();
         assert_eq!(got.model_group.len(), 2);
         assert_eq!(got.fallback_models.len(), 1);
+    }
+
+    // --- Health ---
+
+    #[tokio::test]
+    async fn health_status_roundtrip() {
+        let store = test_store().await;
+        let status = ProviderHealthStatus::new("openai");
+        store.upsert_health_status(&status).await.unwrap();
+
+        let got = store.get_health_status("openai").await.unwrap().unwrap();
+        assert_eq!(got.provider_id, "openai");
+        assert_eq!(got.circuit_state, crate::models::health::CircuitState::Closed);
+        assert_eq!(got.consecutive_failures, 0);
+    }
+
+    #[tokio::test]
+    async fn health_status_upsert_updates() {
+        let store = test_store().await;
+        let mut status = ProviderHealthStatus::new("anthropic");
+        store.upsert_health_status(&status).await.unwrap();
+
+        status.consecutive_failures = 3;
+        status.circuit_state = crate::models::health::CircuitState::Open;
+        status.opened_at = Some(chrono::Utc::now());
+        store.upsert_health_status(&status).await.unwrap();
+
+        let got = store.get_health_status("anthropic").await.unwrap().unwrap();
+        assert_eq!(got.consecutive_failures, 3);
+        assert_eq!(got.circuit_state, crate::models::health::CircuitState::Open);
+        assert!(got.opened_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn health_status_get_nonexistent() {
+        let store = test_store().await;
+        let got = store.get_health_status("nonexistent").await.unwrap();
+        assert!(got.is_none());
     }
 
     // --- Migration ---
