@@ -187,6 +187,46 @@ async fn model_crud() {
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 }
 
+// --- Usage ---
+
+#[tokio::test]
+async fn usage_query_and_summary() {
+    let app = setup().await;
+
+    // Insert a usage record directly via store
+    // We need to query through the API, so first write via store
+    // Since we can't access store from app easily, test via API with empty results
+    let resp = app
+        .clone()
+        .oneshot(admin_request(
+            "POST",
+            "/admin/api/v1/usage",
+            Some(r#"{}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let records: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(records.as_array().unwrap().len(), 0);
+
+    // Summary with empty data
+    let resp = app
+        .clone()
+        .oneshot(admin_request(
+            "POST",
+            "/admin/api/v1/usage/summary",
+            Some(r#"{}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+    let summary: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(summary["total_requests"], 0);
+    assert_eq!(summary["total_credits"], 0);
+}
+
 // --- ApiKey CRUD ---
 
 #[tokio::test]

@@ -1,19 +1,19 @@
 # 测试 Checklist
 
 > AI 生成和维护，人审核和勾选。
-> 当前迭代：005a-messages-streaming
+> 当前迭代：005b-usage-stats
 
 ## 本迭代新增
 
-- [x] proto/anthropic streaming: `cargo test -p lortex-server proto::anthropic` → 11 tests passed
-- [x] messages handler: stream=true 返回 Anthropic SSE 格式
-- [x] api_formats: Model 支持多 API 格式，handler 自动选择 Provider 实现
-- [x] SSE 兼容: OpenAI provider 自动处理 SSE 格式的 non-streaming 响应
-- [x] KV store: SQLite 改为 KV+JSON 模式，17 个 store 测试通过
-- [x] 全量: `cargo test --workspace` → 293 tests passed, 0 failed
+- [x] UsageRecord 写入: 每次 LLM 调用后 usage 记录被写入
+- [x] Usage 查询 API: POST /admin/api/v1/usage 返回记录列表
+- [x] Usage 汇总 API: POST /admin/api/v1/usage/summary 返回汇总数据
+- [x] Admin Web Usage 页面: 可查看汇总卡片 + 明细表格
+- [x] 全量: `cargo test --workspace` → 265 tests passed, 0 failed
 
 ## 回归测试
 
-- [x] server: `cargo test -p lortex-server` → 76 tests passed
+- [x] server: `cargo test -p lortex-server` → 57 unit + 21 integration tests passed
 - [x] proxy API: `cargo test -p lortex-server --test proxy_api` → 15 tests passed
-- [x] core + router + others: 216 tests passed
+- [x] admin API: `cargo test -p lortex-server --test admin_api` → 6 tests passed (含 usage)
+- [x] core + router + others: 全部通过

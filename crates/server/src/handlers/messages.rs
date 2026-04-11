@@ -181,6 +181,7 @@ async fn messages_blocking(
         let credits = deduct_credits(
             &state, &api_key, &model,
             usage.prompt_tokens, usage.completion_tokens, 0, 0,
+            "/v1/messages", elapsed.as_millis() as u64,
         ).await.unwrap_or(0);
 
         tracing::info!(
@@ -414,6 +415,7 @@ async fn messages_stream(
                         let credits = deduct_credits(
                             &state, &api_key, &model,
                             prompt, completion, 0, 0,
+                            "/v1/messages", 0,
                         ).await.unwrap_or(0);
                         tracing::info!(
                             key_name = %api_key.name,

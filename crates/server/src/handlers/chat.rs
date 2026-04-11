@@ -21,7 +21,6 @@ use crate::handlers::provider_builder::build_llm_provider;
 use crate::middleware::proxy_auth::deduct_credits;
 use crate::models::{ApiKey, Model};
 use crate::models::model::ApiFormat;
-use crate::models::provider::Vendor;
 use crate::proto::convert::{openai_request_to_lortex, lortex_response_to_openai};
 use crate::proto::openai::{
     ChatCompletionChunk, ChatCompletionRequest, ChatMessageDelta, ChunkChoice, ErrorResponse,
@@ -189,6 +188,7 @@ async fn chat_completions_blocking(
         let credits = deduct_credits(
             &state, &api_key, &model,
             usage.prompt_tokens, usage.completion_tokens, 0, 0,
+            "/v1/chat/completions", elapsed.as_millis() as u64,
         ).await.unwrap_or(0);
 
         tracing::info!(
@@ -280,6 +280,7 @@ async fn chat_completions_stream(
                         let credits = deduct_credits(
                             &state, &api_key, &model,
                             prompt, completion, 0, 0,
+                            "/v1/chat/completions", 0,
                         ).await.unwrap_or(0);
                         tracing::info!(
                             key_name = %api_key.name,

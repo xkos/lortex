@@ -21,6 +21,10 @@
           <el-icon><Key /></el-icon>
           <span>API Keys</span>
         </el-menu-item>
+        <el-menu-item index="/usage">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>Usage</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>
