@@ -9,7 +9,14 @@
 
     <el-table :data="keys" v-loading="loading" stripe>
       <el-table-column prop="name" label="Name" width="180" />
-      <el-table-column prop="key_prefix" label="Key" width="160" />
+      <el-table-column prop="key_prefix" label="Key" width="200">
+        <template #default="{ row }">
+          <span>{{ row.key_prefix }}</span>
+          <el-button size="small" text @click="copyFullKey(row.id)">
+            <el-icon><CopyDocument /></el-icon>
+          </el-button>
+        </template>
+      </el-table-column>
       <el-table-column prop="default_model" label="Default Model" width="240" />
       <el-table-column label="Models" min-width="200">
         <template #default="{ row }">
@@ -243,6 +250,16 @@ async function handleDelete(id: string) {
 function copyKey() {
   navigator.clipboard.writeText(createdKey.value)
   ElMessage.success('Copied to clipboard')
+}
+
+async function copyFullKey(id: string) {
+  try {
+    const { data } = await api.get(`/keys/${id}/reveal`)
+    await navigator.clipboard.writeText(data.key)
+    ElMessage.success('Key copied to clipboard')
+  } catch {
+    ElMessage.error('Failed to copy key')
+  }
 }
 
 onMounted(() => {

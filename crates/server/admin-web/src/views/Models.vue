@@ -36,8 +36,9 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="Actions" width="140">
+      <el-table-column label="Actions" width="180">
         <template #default="{ row }">
+          <el-button size="small" @click="showEdit(row)">Edit</el-button>
           <el-popconfirm title="Delete this model?" @confirm="handleDelete(row.provider_id, row.vendor_model_name)">
             <template #reference>
               <el-button size="small" type="danger">Delete</el-button>
@@ -47,15 +48,18 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" title="Add Model" width="600px">
+    <el-dialog v-model="dialogVisible" :title="isEdit ? 'Edit Model' : 'Add Model'" width="600px">
       <el-form :model="form" label-width="140px">
-        <el-form-item label="Provider ID">
+        <el-form-item label="Provider ID" v-if="!isEdit">
           <el-select v-model="form.provider_id" placeholder="Select provider">
             <el-option v-for="p in providers" :key="p.id" :label="p.display_name" :value="p.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="Model Name">
+        <el-form-item label="Model Name" v-if="!isEdit">
           <el-input v-model="form.vendor_model_name" placeholder="e.g. gpt-4o" />
+        </el-form-item>
+        <el-form-item label="Provider / Model" v-if="isEdit">
+          <el-input :model-value="`${form.provider_id}/${form.vendor_model_name}`" disabled />
         </el-form-item>
         <el-form-item label="Display Name">
           <el-input v-model="form.display_name" />
@@ -100,6 +104,14 @@
         <el-form-item label="Cache Read">
           <el-input-number v-model="form.cache_read_multiplier" :min="0" :precision="2" :step="0.1" />
         </el-form-item>
+
+        <el-divider>Status</el-divider>
+        <el-form-item label="Enabled">
+          <el-switch v-model="form.enabled" />
+        </el-form-item>
+        <el-form-item label="Cache Enabled">
+          <el-switch v-model="form.cache_enabled" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">Cancel</el-button>
@@ -118,6 +130,7 @@ const models = ref<any[]>([])
 const providers = ref<any[]>([])
 const loading = ref(false)
 const dialogVisible = ref(false)
+const isEdit = ref(false)
 const saving = ref(false)
 const aliasesStr = ref('')
 
@@ -165,8 +178,16 @@ async function fetchProviders() {
 }
 
 function showCreate() {
+  isEdit.value = false
   form.value = emptyForm()
   aliasesStr.value = ''
+  dialogVisible.value = true
+}
+
+function showEdit(row: any) {
+  isEdit.value = true
+  form.value = { ...row }
+  aliasesStr.value = (row.aliases || []).join(', ')
   dialogVisible.value = true
 }
 
