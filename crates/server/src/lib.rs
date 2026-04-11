@@ -6,6 +6,7 @@
 //! - Admin 管理 API
 //! - 代理入口（OpenAI / Anthropic 格式）
 
+pub mod circuit_breaker;
 pub mod config;
 pub mod handlers;
 pub mod middleware;
