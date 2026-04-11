@@ -59,7 +59,7 @@ async fn seed_test_data(app: &axum::Router) -> String {
         .clone()
         .oneshot(admin_request(
             "POST",
-            "/admin/v1/providers",
+            "/admin/api/v1/providers",
             Some(r#"{"id":"test-openai","vendor":"openai","display_name":"Test OpenAI","api_key":"sk-fake","base_url":"https://api.openai.com/v1"}"#),
         ))
         .await
@@ -71,7 +71,7 @@ async fn seed_test_data(app: &axum::Router) -> String {
         .clone()
         .oneshot(admin_request(
             "POST",
-            "/admin/v1/models",
+            "/admin/api/v1/models",
             Some(r#"{
                 "provider_id": "test-openai",
                 "vendor_model_name": "gpt-4o",
@@ -92,7 +92,7 @@ async fn seed_test_data(app: &axum::Router) -> String {
         .clone()
         .oneshot(admin_request(
             "POST",
-            "/admin/v1/keys",
+            "/admin/api/v1/keys",
             Some(r#"{
                 "name": "test-key",
                 "model_group": ["test-openai/gpt-4o", "gpt4"],

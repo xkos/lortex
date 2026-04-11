@@ -48,7 +48,7 @@ fn unauthed_request(method: &str, uri: &str) -> Request<Body> {
 async fn admin_requires_auth() {
     let app = setup().await;
     let resp = app
-        .oneshot(unauthed_request("GET", "/admin/v1/providers"))
+        .oneshot(unauthed_request("GET", "/admin/api/v1/providers"))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
@@ -59,7 +59,7 @@ async fn admin_rejects_wrong_key() {
     let app = setup().await;
     let req = Request::builder()
         .method("GET")
-        .uri("/admin/v1/providers")
+        .uri("/admin/api/v1/providers")
         .header("authorization", "Bearer wrong-key")
         .body(Body::empty())
         .unwrap();
@@ -78,7 +78,7 @@ async fn provider_crud() {
         .clone()
         .oneshot(admin_request(
             "POST",
-            "/admin/v1/providers",
+            "/admin/api/v1/providers",
             Some(r#"{"id":"openai-main","vendor":"openai","display_name":"OpenAI","api_key":"sk-test","base_url":"https://api.openai.com"}"#),
         ))
         .await
@@ -88,7 +88,7 @@ async fn provider_crud() {
     // List
     let resp = app
         .clone()
-        .oneshot(admin_request("GET", "/admin/v1/providers", None))
+        .oneshot(admin_request("GET", "/admin/api/v1/providers", None))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -99,7 +99,7 @@ async fn provider_crud() {
     // Get
     let resp = app
         .clone()
-        .oneshot(admin_request("GET", "/admin/v1/providers/openai-main", None))
+        .oneshot(admin_request("GET", "/admin/api/v1/providers/openai-main", None))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -109,7 +109,7 @@ async fn provider_crud() {
         .clone()
         .oneshot(admin_request(
             "PUT",
-            "/admin/v1/providers/openai-main",
+            "/admin/api/v1/providers/openai-main",
             Some(r#"{"display_name":"OpenAI Updated"}"#),
         ))
         .await
@@ -119,14 +119,14 @@ async fn provider_crud() {
     // Delete
     let resp = app
         .clone()
-        .oneshot(admin_request("DELETE", "/admin/v1/providers/openai-main", None))
+        .oneshot(admin_request("DELETE", "/admin/api/v1/providers/openai-main", None))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 
     // Verify deleted
     let resp = app
-        .oneshot(admin_request("GET", "/admin/v1/providers/openai-main", None))
+        .oneshot(admin_request("GET", "/admin/api/v1/providers/openai-main", None))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
@@ -143,7 +143,7 @@ async fn model_crud() {
         .clone()
         .oneshot(admin_request(
             "POST",
-            "/admin/v1/models",
+            "/admin/api/v1/models",
             Some(r#"{
                 "provider_id": "openai",
                 "vendor_model_name": "gpt-4o",
@@ -162,7 +162,7 @@ async fn model_crud() {
     // List
     let resp = app
         .clone()
-        .oneshot(admin_request("GET", "/admin/v1/models", None))
+        .oneshot(admin_request("GET", "/admin/api/v1/models", None))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -173,7 +173,7 @@ async fn model_crud() {
     // Get
     let resp = app
         .clone()
-        .oneshot(admin_request("GET", "/admin/v1/models/openai/gpt-4o", None))
+        .oneshot(admin_request("GET", "/admin/api/v1/models/openai/gpt-4o", None))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -181,7 +181,7 @@ async fn model_crud() {
     // Delete
     let resp = app
         .clone()
-        .oneshot(admin_request("DELETE", "/admin/v1/models/openai/gpt-4o", None))
+        .oneshot(admin_request("DELETE", "/admin/api/v1/models/openai/gpt-4o", None))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
@@ -198,7 +198,7 @@ async fn api_key_crud() {
         .clone()
         .oneshot(admin_request(
             "POST",
-            "/admin/v1/keys",
+            "/admin/api/v1/keys",
             Some(r#"{
                 "name": "test-key",
                 "model_group": ["openai/gpt-4o"],
@@ -218,7 +218,7 @@ async fn api_key_crud() {
     // List (should show key prefix, not full key)
     let resp = app
         .clone()
-        .oneshot(admin_request("GET", "/admin/v1/keys", None))
+        .oneshot(admin_request("GET", "/admin/api/v1/keys", None))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -232,7 +232,7 @@ async fn api_key_crud() {
         .clone()
         .oneshot(admin_request(
             "PUT",
-            &format!("/admin/v1/keys/{key_id}"),
+            &format!("/admin/api/v1/keys/{key_id}"),
             Some(r#"{"name":"updated-key","credit_limit":999}"#),
         ))
         .await
@@ -248,7 +248,7 @@ async fn api_key_crud() {
         .clone()
         .oneshot(admin_request(
             "POST",
-            &format!("/admin/v1/keys/{key_id}/reset-credits"),
+            &format!("/admin/api/v1/keys/{key_id}/reset-credits"),
             None,
         ))
         .await
@@ -260,7 +260,7 @@ async fn api_key_crud() {
         .clone()
         .oneshot(admin_request(
             "DELETE",
-            &format!("/admin/v1/keys/{key_id}"),
+            &format!("/admin/api/v1/keys/{key_id}"),
             None,
         ))
         .await

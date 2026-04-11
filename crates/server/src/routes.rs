@@ -39,6 +39,6 @@ pub fn proxy_routes(state: AppState) -> Router {
 /// 构建完整的应用路由
 pub fn app_router(state: AppState, admin_key: String) -> Router {
     Router::new()
-        .nest("/admin/v1", admin_routes(state.clone(), admin_key))
+        .nest("/admin/api/v1", admin_routes(state.clone(), admin_key))
         .merge(proxy_routes(state))
 }
