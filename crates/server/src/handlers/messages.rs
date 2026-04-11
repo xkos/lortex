@@ -237,7 +237,9 @@ async fn messages_stream(
     let event_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
 
     // Track state across events
-    let mut content_block_started = false;
+    let mut next_block_index: usize = 0;  // Next Anthropic content block index
+    let mut text_block_open = false;
+    let mut current_tool_indices: std::collections::HashMap<usize, usize> = std::collections::HashMap::new(); // OpenAI tool index → Anthropic block index
     let mut output_tokens: u32 = 0;
 
     // Build the SSE stream
@@ -274,11 +276,11 @@ async fn messages_stream(
                 let mut events = Vec::new();
 
                 // Emit content_block_start if first text delta
-                if !content_block_started {
-                    content_block_started = true;
+                if !text_block_open {
+                    text_block_open = true;
                     let block_start = ContentBlockStartEvent {
                         event_type: "content_block_start".into(),
-                        index: 0,
+                        index: next_block_index,
                         content_block: ContentBlock::Text { text: String::new() },
                     };
                     events.push(
@@ -286,11 +288,12 @@ async fn messages_stream(
                             .event("content_block_start")
                             .data(serde_json::to_string(&block_start).unwrap()),
                     );
+                    // Don't increment next_block_index yet — will do on close
                 }
 
                 let delta_event = ContentBlockDeltaEvent {
                     event_type: "content_block_delta".into(),
-                    index: 0,
+                    index: if text_block_open { next_block_index } else { 0 },
                     delta: DeltaBlock::TextDelta { text: delta },
                 };
                 events.push(
@@ -301,24 +304,68 @@ async fn messages_stream(
 
                 events
             }
-            Ok(StreamEvent::ToolCallStart { index, id, name }) => {
+            Ok(StreamEvent::ToolCallStart { index: oai_index, id, name }) => {
+                let mut events = Vec::new();
+
+                // Close text block if open
+                if text_block_open {
+                    text_block_open = false;
+                    let stop = ContentBlockStopEvent {
+                        event_type: "content_block_stop".into(),
+                        index: next_block_index,
+                    };
+                    events.push(
+                        Event::default()
+                            .event("content_block_stop")
+                            .data(serde_json::to_string(&stop).unwrap()),
+                    );
+                    next_block_index += 1;
+                }
+
+                // Close previous tool block if any (different index)
+                // OpenAI sends ToolCallStart for each new tool
+                // We need to close the previous tool's block
+                if let Some(&prev_block_idx) = current_tool_indices.values().last() {
+                    if !current_tool_indices.contains_key(&oai_index) {
+                        let stop = ContentBlockStopEvent {
+                            event_type: "content_block_stop".into(),
+                            index: prev_block_idx,
+                        };
+                        events.push(
+                            Event::default()
+                                .event("content_block_stop")
+                                .data(serde_json::to_string(&stop).unwrap()),
+                        );
+                        next_block_index += 1;
+                    }
+                }
+
+                // Map OpenAI tool index to Anthropic block index
+                let block_idx = next_block_index;
+                current_tool_indices.insert(oai_index, block_idx);
+
                 let block_start = ContentBlockStartEvent {
                     event_type: "content_block_start".into(),
-                    index,
+                    index: block_idx,
                     content_block: ContentBlock::ToolUse {
                         id,
                         name,
                         input: serde_json::json!({}),
                     },
                 };
-                vec![Event::default()
-                    .event("content_block_start")
-                    .data(serde_json::to_string(&block_start).unwrap())]
+                events.push(
+                    Event::default()
+                        .event("content_block_start")
+                        .data(serde_json::to_string(&block_start).unwrap()),
+                );
+
+                events
             }
-            Ok(StreamEvent::ToolCallDelta { index, arguments_delta }) => {
+            Ok(StreamEvent::ToolCallDelta { index: oai_index, arguments_delta }) => {
+                let block_idx = current_tool_indices.get(&oai_index).copied().unwrap_or(oai_index);
                 let delta_event = ContentBlockDeltaEvent {
                     event_type: "content_block_delta".into(),
-                    index,
+                    index: block_idx,
                     delta: DeltaBlock::InputJsonDelta { partial_json: arguments_delta },
                 };
                 vec![Event::default()
@@ -328,11 +375,24 @@ async fn messages_stream(
             Ok(StreamEvent::Done { usage, finish_reason }) => {
                 let mut events = Vec::new();
 
-                // Close any open content block
-                if content_block_started {
+                // Close text block if still open
+                if text_block_open {
                     let stop = ContentBlockStopEvent {
                         event_type: "content_block_stop".into(),
-                        index: 0,
+                        index: next_block_index,
+                    };
+                    events.push(
+                        Event::default()
+                            .event("content_block_stop")
+                            .data(serde_json::to_string(&stop).unwrap()),
+                    );
+                }
+
+                // Close last tool block if any
+                if let Some(&last_block_idx) = current_tool_indices.values().max() {
+                    let stop = ContentBlockStopEvent {
+                        event_type: "content_block_stop".into(),
+                        index: last_block_idx,
                     };
                     events.push(
                         Event::default()

@@ -496,6 +496,11 @@ impl Provider for OpenAIProvider {
                         Err(_) => continue,
                     };
 
+                    tracing::trace!(
+                        chunk = %serde_json::to_string(&chunk_json).unwrap_or_default(),
+                        "OpenAI SSE chunk"
+                    );
+
                     // Parse content delta
                     if let Some(delta) = chunk_json
                         .get("choices")
@@ -525,6 +530,12 @@ impl Provider for OpenAIProvider {
                                     .and_then(|n| n.as_str())
                                     .unwrap_or("")
                                     .to_string();
+                                tracing::debug!(
+                                    tool_index = index,
+                                    tool_id = %id,
+                                    tool_name = %name,
+                                    "OpenAI SSE: ToolCallStart"
+                                );
                                 yield StreamEvent::ToolCallStart {
                                     index,
                                     id: id.to_string(),
