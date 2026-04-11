@@ -22,7 +22,7 @@ async fn setup() -> (axum::Router, Arc<SqliteStore>) {
     let state = AppState {
         store: store.clone(),
     };
-    let app = app_router(state, ADMIN_KEY.into());
+    let app = app_router(state, ADMIN_KEY.into(), false);
     (app, store)
 }
 

@@ -18,7 +18,7 @@ async fn setup() -> axum::Router {
     let state = AppState {
         store: Arc::new(store),
     };
-    app_router(state, ADMIN_KEY.into())
+    app_router(state, ADMIN_KEY.into(), false)
 }
 
 fn admin_request(method: &str, uri: &str, body: Option<&str>) -> Request<Body> {

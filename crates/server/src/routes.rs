@@ -38,9 +38,16 @@ pub fn proxy_routes(state: AppState) -> Router {
 }
 
 /// 构建完整的应用路由
-pub fn app_router(state: AppState, admin_key: String) -> Router {
-    Router::new()
+pub fn app_router(state: AppState, admin_key: String, with_admin_web: bool) -> Router {
+    let mut router = Router::new()
         .nest("/admin/api/v1", admin_routes(state.clone(), admin_key))
-        .merge(proxy_routes(state))
-        .layer(TraceLayer::new_for_http())
+        .merge(proxy_routes(state));
+
+    if with_admin_web {
+        router = router
+            .route("/admin/web/", get(crate::handlers::web::index))
+            .route("/admin/web/{*path}", get(crate::handlers::web::static_file));
+    }
+
+    router.layer(TraceLayer::new_for_http())
 }
