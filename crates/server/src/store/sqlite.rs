@@ -10,8 +10,9 @@ use sqlx::Row;
 use crate::models::api_key::ApiKey;
 use crate::models::model::Model;
 use crate::models::provider::Provider;
+use crate::models::usage::UsageRecord;
 use crate::store::error::StoreError;
-use crate::store::traits::ProxyStore;
+use crate::store::traits::{ProxyStore, UsageQuery, UsageSummary};
 
 /// SQLite 存储后端
 pub struct SqliteStore {
@@ -285,6 +286,100 @@ impl ProxyStore for SqliteStore {
                 .await?;
         }
         Ok(())
+    }
+
+    // --- Usage ---
+
+    async fn insert_usage(&self, record: &UsageRecord) -> Result<(), StoreError> {
+        let data = serde_json::to_string(record)?;
+        sqlx::query(
+            "INSERT INTO entities (kind, id, secondary_key, enabled, data, created_at)
+             VALUES ('usage', ?, ?, 1, ?, ?)"
+        )
+        .bind(&record.id)
+        .bind(&record.api_key_id) // secondary_key = api_key_id for fast lookup
+        .bind(&data)
+        .bind(record.created_at.to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn query_usage(&self, query: &UsageQuery) -> Result<Vec<UsageRecord>, StoreError> {
+        // Load all usage records and filter in memory
+        // (acceptable for small-medium datasets; for large scale, add SQL WHERE clauses)
+        let rows = sqlx::query(
+            "SELECT data FROM entities WHERE kind = 'usage' ORDER BY created_at DESC"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let limit = query.limit.unwrap_or(1000);
+        let mut results = Vec::new();
+
+        for row in &rows {
+            let record: UsageRecord = parse_json(row)?;
+
+            if let Some(ref key_id) = query.api_key_id {
+                if record.api_key_id != *key_id {
+                    continue;
+                }
+            }
+            if let Some(ref pid) = query.provider_id {
+                if record.provider_id != *pid {
+                    continue;
+                }
+            }
+            if let Some(ref mname) = query.vendor_model_name {
+                if record.vendor_model_name != *mname {
+                    continue;
+                }
+            }
+            if let Some(ref start) = query.start_time {
+                if record.created_at < *start {
+                    continue;
+                }
+            }
+            if let Some(ref end) = query.end_time {
+                if record.created_at > *end {
+                    continue;
+                }
+            }
+
+            results.push(record);
+            if results.len() >= limit {
+                break;
+            }
+        }
+
+        Ok(results)
+    }
+
+    async fn summarize_usage(&self, query: &UsageQuery) -> Result<UsageSummary, StoreError> {
+        let records = self.query_usage(&UsageQuery {
+            limit: None, // no limit for summary
+            ..query.clone()
+        }).await?;
+
+        let mut summary = UsageSummary {
+            total_requests: 0,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            total_cache_write_tokens: 0,
+            total_cache_read_tokens: 0,
+            total_credits: 0,
+        };
+
+        for r in &records {
+            summary.total_requests += 1;
+            summary.total_input_tokens += r.input_tokens as u64;
+            summary.total_output_tokens += r.output_tokens as u64;
+            summary.total_cache_write_tokens += r.cache_write_tokens as u64;
+            summary.total_cache_read_tokens += r.cache_read_tokens as u64;
+            summary.total_credits += r.credits_consumed;
+        }
+
+        Ok(summary)
     }
 }
 

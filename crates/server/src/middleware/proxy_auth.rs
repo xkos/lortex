@@ -115,7 +115,7 @@ fn extract_api_key(request: &Request) -> Option<String> {
     None
 }
 
-/// 请求完成后扣减 credit
+/// 请求完成后扣减 credit 并写入用量记录
 pub async fn deduct_credits(
     state: &AppState,
     api_key: &ApiKey,
@@ -124,6 +124,8 @@ pub async fn deduct_credits(
     output_tokens: u32,
     cache_write_tokens: u32,
     cache_read_tokens: u32,
+    endpoint: &str,
+    latency_ms: u64,
 ) -> Result<i64, crate::store::StoreError> {
     let mut credits: f64 = 0.0;
 
@@ -141,6 +143,29 @@ pub async fn deduct_credits(
 
     let credits_int = credits.ceil() as i64;
     state.store.add_credits_used(&api_key.id, credits_int).await?;
+
+    // 写入用量记录
+    let record = crate::models::UsageRecord {
+        id: uuid::Uuid::new_v4().to_string(),
+        api_key_id: api_key.id.clone(),
+        api_key_name: api_key.name.clone(),
+        provider_id: model.provider_id.clone(),
+        vendor_model_name: model.vendor_model_name.clone(),
+        request_endpoint: endpoint.to_string(),
+        input_tokens,
+        cache_write_tokens,
+        cache_read_tokens,
+        output_tokens,
+        image_input_units: 0,
+        audio_input_seconds: 0.0,
+        credits_consumed: credits_int,
+        latency_ms,
+        created_at: chrono::Utc::now(),
+    };
+    if let Err(e) = state.store.insert_usage(&record).await {
+        tracing::warn!(error = %e, "Failed to write usage record");
+    }
+
     Ok(credits_int)
 }
 

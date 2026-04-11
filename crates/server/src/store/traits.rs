@@ -2,8 +2,30 @@
 
 use async_trait::async_trait;
 
-use crate::models::{ApiKey, Model, Provider};
+use crate::models::{ApiKey, Model, Provider, UsageRecord};
 use crate::store::StoreError;
+
+/// 用量查询参数
+#[derive(Debug, Clone, Default)]
+pub struct UsageQuery {
+    pub api_key_id: Option<String>,
+    pub provider_id: Option<String>,
+    pub vendor_model_name: Option<String>,
+    pub start_time: Option<chrono::DateTime<chrono::Utc>>,
+    pub end_time: Option<chrono::DateTime<chrono::Utc>>,
+    pub limit: Option<usize>,
+}
+
+/// 用量汇总
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UsageSummary {
+    pub total_requests: u64,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    pub total_cache_write_tokens: u64,
+    pub total_cache_read_tokens: u64,
+    pub total_credits: i64,
+}
 
 #[async_trait]
 pub trait ProxyStore: Send + Sync {
@@ -24,7 +46,6 @@ pub trait ProxyStore: Send + Sync {
         &self,
         provider_id: &str,
     ) -> Result<Vec<Model>, StoreError>;
-    /// 按 ID（"provider_id/vendor_model_name"）或别名查找模型
     async fn find_model(&self, name: &str) -> Result<Option<Model>, StoreError>;
     async fn upsert_model(&self, m: &Model) -> Result<(), StoreError>;
     async fn delete_model(
@@ -41,4 +62,9 @@ pub trait ProxyStore: Send + Sync {
     async fn delete_api_key(&self, id: &str) -> Result<(), StoreError>;
     async fn add_credits_used(&self, key_id: &str, credits: i64) -> Result<(), StoreError>;
     async fn reset_credits(&self, key_id: &str) -> Result<(), StoreError>;
+
+    // --- Usage ---
+    async fn insert_usage(&self, record: &UsageRecord) -> Result<(), StoreError>;
+    async fn query_usage(&self, query: &UsageQuery) -> Result<Vec<UsageRecord>, StoreError>;
+    async fn summarize_usage(&self, query: &UsageQuery) -> Result<UsageSummary, StoreError>;
 }
