@@ -1,6 +1,6 @@
 # 任务 005a: Anthropic /v1/messages Streaming
 
-> 状态：🔨 进行中
+> 状态：✅ 已关闭
 > 分支：iter/005a-messages-streaming
 > 配对迭代：[iterations/005a-messages-streaming.md](../iterations/005a-messages-streaming.md)
 
@@ -15,9 +15,11 @@
 - `cargo test --workspace` 全量通过
 
 ## 任务分解
-- [ ] T1: Anthropic streaming 类型定义（SSE event types）
+- [x] T1: Anthropic streaming 类型定义（SSE event types）
   - 验证：序列化格式与 Anthropic API 一致
-- [ ] T2: /v1/messages streaming handler
+- [x] T2: /v1/messages streaming handler
   - 验证：stream=true 时返回 SSE，逐 chunk 透传
-- [ ] T3: 测试验证
+- [x] T3: 测试验证
   - 验证：集成测试 + cargo test --workspace 全量通过
+- [x] T4: Model api_formats + 协议自动转换（追加）
+  - 验证：根据 api_formats 自动选择 Provider 实现 + SSE 响应兼容修复
