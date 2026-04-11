@@ -23,6 +23,8 @@ pub fn admin_routes(state: AppState, admin_key: String) -> Router {
         .route("/keys/{id}", get(admin::keys::get).put(admin::keys::update).delete(admin::keys::delete))
         .route("/keys/{id}/reset-credits", post(admin::keys::reset_credits))
         .route("/keys/{id}/reveal", get(admin::keys::reveal_key))
+        .route("/usage", post(admin::usage::list))
+        .route("/usage/summary", post(admin::usage::summary))
         .layer(middleware::from_fn(admin_auth))
         .layer(axum::Extension(AdminKey(admin_key)))
         .with_state(state)
