@@ -1,7 +1,6 @@
 //! /v1/chat/completions — OpenAI 兼容对话补全（non-streaming + streaming）
 
 use std::convert::Infallible;
-use std::sync::Arc;
 
 use axum::{
     extract::Extension,
@@ -15,12 +14,12 @@ use axum::{
 use futures::StreamExt;
 
 use lortex_core::error::ProviderError;
-use lortex_core::provider::{Provider, StreamEvent};
+use lortex_core::provider::StreamEvent;
 
-use crate::handlers::provider_builder::build_llm_provider;
+use crate::handlers::shared::{self, ProxyError};
 use crate::middleware::proxy_auth::deduct_credits;
-use crate::models::{ApiKey, Model};
 use crate::models::model::ApiFormat;
+use crate::models::ApiKey;
 use crate::proto::convert::{openai_request_to_lortex, lortex_response_to_openai};
 use crate::proto::openai::{
     ChatCompletionChunk, ChatCompletionRequest, ChatMessageDelta, ChunkChoice, ErrorResponse,
@@ -28,108 +27,8 @@ use crate::proto::openai::{
 };
 use crate::state::AppState;
 
-/// 解析模型：PROXY_MANAGED / 精确 ID / 别名
-async fn resolve_model(
-    state: &AppState,
-    api_key: &ApiKey,
-    model_name: &str,
-) -> Result<Model, (StatusCode, Json<ErrorResponse>)> {
-    let effective_name = if model_name == "PROXY_MANAGED" {
-        &api_key.default_model
-    } else {
-        model_name
-    };
-
-    let model = state
-        .store
-        .find_model(effective_name)
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("Store error", "server_error")),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse::not_found(format!(
-                    "Model '{}' not found",
-                    effective_name
-                ))),
-            )
-        })?;
-
-    if !api_key.model_group.iter().any(|name| model.matches(name)) {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::not_found(format!(
-                "Model '{}' not available for this API key",
-                effective_name
-            ))),
-        ));
-    }
-
-    if !model.enabled {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse::not_found(format!(
-                "Model '{}' is disabled",
-                effective_name
-            ))),
-        ));
-    }
-
-    Ok(model)
-}
-
-/// 根据 Provider 配置构建 lortex Provider 实例（OpenAI 格式优先）
-async fn build_provider(
-    state: &AppState,
-    model: &Model,
-) -> Result<Arc<dyn Provider>, (StatusCode, Json<ErrorResponse>)> {
-    let provider_config = state
-        .store
-        .get_provider(&model.provider_id)
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new("Store error", "server_error")),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse::new(
-                    format!("Provider '{}' not found", model.provider_id),
-                    "server_error",
-                )),
-            )
-        })?;
-
-    if !provider_config.enabled {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ErrorResponse::new(
-                format!("Provider '{}' is disabled", model.provider_id),
-                "server_error",
-            )),
-        ));
-    }
-
-    Ok(build_llm_provider(&provider_config, model, &ApiFormat::OpenAI))
-}
-
-fn map_provider_error(e: ProviderError) -> (StatusCode, Json<ErrorResponse>) {
-    let (status, msg) = match &e {
-        ProviderError::RateLimited { .. } => (StatusCode::TOO_MANY_REQUESTS, e.to_string()),
-        ProviderError::AuthenticationFailed(_) => {
-            (StatusCode::UNAUTHORIZED, "Upstream authentication failed".into())
-        }
-        _ => (StatusCode::BAD_GATEWAY, e.to_string()),
-    };
-    (status, Json(ErrorResponse::new(msg, "upstream_error")))
+fn to_oai_error(e: ProxyError) -> (StatusCode, Json<ErrorResponse>) {
+    (e.status, Json(ErrorResponse::new(e.message, "server_error")))
 }
 
 /// POST /v1/chat/completions — 入口，根据 stream 字段分发
@@ -157,7 +56,7 @@ async fn chat_completions_blocking(
     api_key: ApiKey,
     req: ChatCompletionRequest,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let model = resolve_model(&state, &api_key, &req.model).await?;
+    let model = shared::resolve_model(&state, &api_key, &req.model).await.map_err(to_oai_error)?;
     tracing::info!(
         key_name = %api_key.name,
         requested_model = %req.model,
@@ -167,21 +66,13 @@ async fn chat_completions_blocking(
         "Routing chat completion"
     );
 
-    let provider = build_provider(&state, &model).await?;
+    let provider = shared::build_provider(&state, &model, &ApiFormat::OpenAI).await.map_err(to_oai_error)?;
 
     let mut lortex_req = openai_request_to_lortex(&req);
     lortex_req.model = model.vendor_model_name.clone();
 
     let start = std::time::Instant::now();
-    let lortex_resp = provider.complete(lortex_req).await.map_err(|e| {
-        tracing::error!(
-            provider = %model.provider_id,
-            model = %model.vendor_model_name,
-            error = %e,
-            "Upstream LLM call failed"
-        );
-        map_provider_error(e)
-    })?;
+    let lortex_resp = provider.complete(lortex_req).await.map_err(|e| to_oai_error(shared::map_provider_error(e)))?;
     let elapsed = start.elapsed();
 
     if let Some(usage) = &lortex_resp.usage {
@@ -213,7 +104,7 @@ async fn chat_completions_stream(
     api_key: ApiKey,
     req: ChatCompletionRequest,
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
-    let model = resolve_model(&state, &api_key, &req.model).await?;
+    let model = shared::resolve_model(&state, &api_key, &req.model).await.map_err(to_oai_error)?;
     tracing::info!(
         key_name = %api_key.name,
         requested_model = %req.model,
@@ -223,7 +114,7 @@ async fn chat_completions_stream(
         "Routing chat completion (streaming)"
     );
 
-    let provider = build_provider(&state, &model).await?;
+    let provider = shared::build_provider(&state, &model, &ApiFormat::OpenAI).await.map_err(to_oai_error)?;
 
     let mut lortex_req = openai_request_to_lortex(&req);
     lortex_req.model = model.vendor_model_name.clone();

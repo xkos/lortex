@@ -23,6 +23,7 @@ pub struct OpenAIProvider {
     base_url: String,
     client: Client,
     organization: Option<String>,
+    extra_headers: std::collections::HashMap<String, String>,
 }
 
 impl OpenAIProvider {
@@ -33,6 +34,7 @@ impl OpenAIProvider {
             base_url: "https://api.openai.com/v1".to_string(),
             client: Client::new(),
             organization: None,
+            extra_headers: std::collections::HashMap::new(),
         }
     }
 
@@ -45,6 +47,12 @@ impl OpenAIProvider {
     /// Set the organization ID.
     pub fn with_organization(mut self, org: impl Into<String>) -> Self {
         self.organization = Some(org.into());
+        self
+    }
+
+    /// Add extra headers to all requests.
+    pub fn with_extra_headers(mut self, headers: std::collections::HashMap<String, String>) -> Self {
+        self.extra_headers = headers;
         self
     }
 
@@ -271,6 +279,9 @@ impl Provider for OpenAIProvider {
         if let Some(org) = &self.organization {
             req = req.header("OpenAI-Organization", org.as_str());
         }
+        for (k, v) in &self.extra_headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
 
         let resp = req
             .json(&body)
@@ -424,6 +435,7 @@ impl Provider for OpenAIProvider {
         let url = format!("{}/chat/completions", self.base_url);
         let api_key = self.api_key.clone();
         let org = self.organization.clone();
+        let extra_headers = self.extra_headers.clone();
 
         let mut body = serde_json::json!({
             "model": request.model,
@@ -451,6 +463,9 @@ impl Provider for OpenAIProvider {
 
             if let Some(org) = &org {
                 req = req.header("OpenAI-Organization", org.as_str());
+            }
+            for (k, v) in &extra_headers {
+                req = req.header(k.as_str(), v.as_str());
             }
 
             let resp = req

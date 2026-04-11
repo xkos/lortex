@@ -32,13 +32,15 @@ pub fn build_llm_provider(
         ApiFormat::OpenAI => {
             Arc::new(
                 lortex_providers::openai::OpenAIProvider::new(&provider_config.api_key)
-                    .with_base_url(&provider_config.base_url),
+                    .with_base_url(&provider_config.base_url)
+                    .with_extra_headers(model.extra_headers.clone()),
             )
         }
         ApiFormat::Anthropic => {
             Arc::new(
                 lortex_providers::anthropic::AnthropicProvider::new(&provider_config.api_key)
-                    .with_base_url(&provider_config.base_url),
+                    .with_base_url(&provider_config.base_url)
+                    .with_extra_headers(model.extra_headers.clone()),
             )
         }
     }

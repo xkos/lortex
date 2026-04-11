@@ -24,6 +24,7 @@ pub struct AnthropicProvider {
     api_key: String,
     base_url: String,
     client: Client,
+    extra_headers: std::collections::HashMap<String, String>,
 }
 
 impl AnthropicProvider {
@@ -33,12 +34,19 @@ impl AnthropicProvider {
             api_key: api_key.into(),
             base_url: "https://api.anthropic.com/v1".to_string(),
             client: Client::new(),
+            extra_headers: std::collections::HashMap::new(),
         }
     }
 
     /// Set a custom base URL.
     pub fn with_base_url(mut self, url: impl Into<String>) -> Self {
         self.base_url = url.into();
+        self
+    }
+
+    /// Add extra headers to all requests.
+    pub fn with_extra_headers(mut self, headers: std::collections::HashMap<String, String>) -> Self {
+        self.extra_headers = headers;
         self
     }
 
@@ -184,12 +192,16 @@ impl Provider for AnthropicProvider {
             body["tools"] = Value::Array(Self::convert_tools(&request.tools));
         }
 
-        let resp = self
+        let mut req = self
             .client
             .post(&url)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", ANTHROPIC_API_VERSION)
-            .header("Content-Type", "application/json")
+            .header("Content-Type", "application/json");
+        for (k, v) in &self.extra_headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let resp = req
             .json(&body)
             .send()
             .await
@@ -331,13 +343,18 @@ impl Provider for AnthropicProvider {
         }
 
         let client = self.client.clone();
+        let extra_headers = self.extra_headers.clone();
 
         Box::pin(async_stream::try_stream! {
-            let resp = client
+            let mut req = client
                 .post(&url)
                 .header("x-api-key", &api_key)
                 .header("anthropic-version", ANTHROPIC_API_VERSION)
-                .header("Content-Type", "application/json")
+                .header("Content-Type", "application/json");
+            for (k, v) in &extra_headers {
+                req = req.header(k.as_str(), v.as_str());
+            }
+            let resp = req
                 .json(&body)
                 .send()
                 .await
