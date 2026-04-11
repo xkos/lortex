@@ -196,10 +196,22 @@ impl Provider for OpenAIProvider {
             ));
         }
 
-        let resp_body: Value = resp
-            .json()
+        let resp_text = resp
+            .text()
             .await
             .map_err(|e| ProviderError::InvalidResponse(e.to_string()))?;
+
+        tracing::debug!(
+            response_body = %resp_text.chars().take(500).collect::<String>(),
+            "OpenAI provider raw response"
+        );
+
+        let resp_body: Value = serde_json::from_str(&resp_text)
+            .map_err(|e| ProviderError::InvalidResponse(format!(
+                "Failed to parse JSON: {}. Body starts with: {}",
+                e,
+                resp_text.chars().take(200).collect::<String>()
+            )))?;
 
         if status >= 400 {
             let message = resp_body
