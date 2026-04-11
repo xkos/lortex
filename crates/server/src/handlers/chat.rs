@@ -172,18 +172,48 @@ async fn chat_completions_blocking(
     req: ChatCompletionRequest,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let model = resolve_model(&state, &api_key, &req.model).await?;
+    tracing::info!(
+        key_name = %api_key.name,
+        requested_model = %req.model,
+        resolved_model = %model.id(),
+        provider = %model.provider_id,
+        stream = false,
+        "Routing chat completion"
+    );
+
     let provider = build_provider(&state, &model).await?;
 
     let mut lortex_req = openai_request_to_lortex(&req);
     lortex_req.model = model.vendor_model_name.clone();
 
-    let lortex_resp = provider.complete(lortex_req).await.map_err(map_provider_error)?;
+    let start = std::time::Instant::now();
+    let lortex_resp = provider.complete(lortex_req).await.map_err(|e| {
+        tracing::error!(
+            provider = %model.provider_id,
+            model = %model.vendor_model_name,
+            error = %e,
+            "Upstream LLM call failed"
+        );
+        map_provider_error(e)
+    })?;
+    let elapsed = start.elapsed();
 
     if let Some(usage) = &lortex_resp.usage {
-        let _ = deduct_credits(
+        let credits = deduct_credits(
             &state, &api_key, &model,
             usage.prompt_tokens, usage.completion_tokens, 0, 0,
-        ).await;
+        ).await.unwrap_or(0);
+
+        tracing::info!(
+            key_name = %api_key.name,
+            model = %model.id(),
+            input_tokens = usage.prompt_tokens,
+            output_tokens = usage.completion_tokens,
+            total_tokens = usage.total_tokens,
+            credits_deducted = credits,
+            elapsed_ms = elapsed.as_millis() as u64,
+            "Chat completion done"
+        );
     }
 
     let oai_resp = lortex_response_to_openai(&lortex_resp, &model.id());
@@ -197,6 +227,15 @@ async fn chat_completions_stream(
     req: ChatCompletionRequest,
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
     let model = resolve_model(&state, &api_key, &req.model).await?;
+    tracing::info!(
+        key_name = %api_key.name,
+        requested_model = %req.model,
+        resolved_model = %model.id(),
+        provider = %model.provider_id,
+        stream = true,
+        "Routing chat completion (streaming)"
+    );
+
     let provider = build_provider(&state, &model).await?;
 
     let mut lortex_req = openai_request_to_lortex(&req);
@@ -245,14 +284,25 @@ async fn chat_completions_stream(
                 if let Some(ref u) = usage {
                     let prompt = u.prompt_tokens;
                     let completion = u.completion_tokens;
+                    let total = u.total_tokens;
                     let state = state.clone();
                     let api_key = api_key.clone();
                     let model = model.clone();
+                    let model_id_log = model_id.clone();
                     tokio::spawn(async move {
-                        let _ = deduct_credits(
+                        let credits = deduct_credits(
                             &state, &api_key, &model,
                             prompt, completion, 0, 0,
-                        ).await;
+                        ).await.unwrap_or(0);
+                        tracing::info!(
+                            key_name = %api_key.name,
+                            model = %model_id_log,
+                            input_tokens = prompt,
+                            output_tokens = completion,
+                            total_tokens = total,
+                            credits_deducted = credits,
+                            "Streaming chat completion done"
+                        );
                     });
                 }
 

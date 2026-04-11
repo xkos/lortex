@@ -85,7 +85,7 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Admin API listening on {}", admin_addr);
 
         let admin_app = lortex_server::routes::admin_routes(state, config.admin_key);
-        let admin_app = axum::Router::new().nest("/admin/v1", admin_app);
+        let admin_app = axum::Router::new().nest("/admin/api/v1", admin_app);
 
         // 主端口不含 admin 路由
         let main_app = axum::Router::new();

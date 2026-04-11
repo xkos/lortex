@@ -141,12 +141,28 @@ pub async fn messages(
     }
 
     let model = resolve_model(&state, &api_key, &req.model).await?;
+    tracing::info!(
+        key_name = %api_key.name,
+        requested_model = %req.model,
+        resolved_model = %model.id(),
+        provider = %model.provider_id,
+        endpoint = "/v1/messages",
+        "Routing Anthropic messages request"
+    );
+
     let provider = build_provider(&state, &model).await?;
 
     let mut lortex_req = anthropic_request_to_lortex(&req);
     lortex_req.model = model.vendor_model_name.clone();
 
+    let start = std::time::Instant::now();
     let lortex_resp = provider.complete(lortex_req).await.map_err(|e| {
+        tracing::error!(
+            provider = %model.provider_id,
+            model = %model.vendor_model_name,
+            error = %e,
+            "Upstream LLM call failed"
+        );
         let (status, msg) = match &e {
             ProviderError::RateLimited { .. } => {
                 (StatusCode::TOO_MANY_REQUESTS, e.to_string())
@@ -158,12 +174,23 @@ pub async fn messages(
         };
         (status, Json(AnthropicError::new("error", "api_error", msg)))
     })?;
+    let elapsed = start.elapsed();
 
     if let Some(usage) = &lortex_resp.usage {
-        let _ = deduct_credits(
+        let credits = deduct_credits(
             &state, &api_key, &model,
             usage.prompt_tokens, usage.completion_tokens, 0, 0,
-        ).await;
+        ).await.unwrap_or(0);
+
+        tracing::info!(
+            key_name = %api_key.name,
+            model = %model.id(),
+            input_tokens = usage.prompt_tokens,
+            output_tokens = usage.completion_tokens,
+            credits_deducted = credits,
+            elapsed_ms = elapsed.as_millis() as u64,
+            "Anthropic messages request done"
+        );
     }
 
     let anthropic_resp = lortex_response_to_anthropic(&lortex_resp, &model.id());
