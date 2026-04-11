@@ -11,8 +11,8 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 ## 当前迭代
 
-- 当前活跃：005b-usage-stats（已完成）
-- 分支：iter/005b-usage-stats
+- 当前活跃：006a-mvp-polish（已完成，待验收合并）
+- 分支：iter/006a-mvp-polish
 
 ---
 
@@ -22,7 +22,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 |------|------|---------|
 | core | ✅ 可用 | 71 tests |
 | executor | ✅ 可用 | 13 tests |
-| providers | ✅ 可用（真实 SSE + SSE 响应兼容） | 0 tests |
+| providers | ✅ 可用（extra_headers + cache token） | 0 tests |
 | protocols | 🔨 部分 | 0 tests |
 | tools | ✅ 可用 | 24 tests |
 | swarm | ✅ 可用 | 0 tests |
@@ -55,12 +55,15 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 | 结构化日志 | ✅ |
 | Admin Web 管理后台 | ✅ |
 | 用量统计（记录+查询+Web） | ✅ |
+| Model update endpoint | ✅ |
+| extra_headers 注入 | ✅ |
+| handler 去重（shared 模块） | ✅ |
+| cache token 传递 | ✅ |
 
 ---
 
 ## 下一步建议
 
-1. 006a: MVP 补齐（Model update、extra_headers 注入、resolve_model 去重、cache token 提取）
-2. 006b: FallbackRouter + 健康检测
-3. /v1/embeddings 实现
-4. Rate Limiting（RPM/TPM per ApiKey）
+1. 006b: FallbackRouter + 健康检测
+2. /v1/embeddings 实现
+3. Rate Limiting（RPM/TPM per ApiKey）

@@ -537,6 +537,8 @@ mod tests {
                 prompt_tokens: 10,
                 completion_tokens: 5,
                 total_tokens: 15,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
             }),
             finish_reason: Some(lortex_core::provider::FinishReason::Stop),
             model: "gpt-4o".into(),

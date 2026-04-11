@@ -1,7 +1,6 @@
 //! /v1/messages — Anthropic Messages API 兼容入口（non-streaming + streaming）
 
 use std::convert::Infallible;
-use std::sync::Arc;
 
 use axum::{
     extract::Extension,
@@ -15,121 +14,18 @@ use axum::{
 use futures::StreamExt;
 
 use lortex_core::error::ProviderError;
-use lortex_core::provider::{Provider, StreamEvent};
+use lortex_core::provider::StreamEvent;
 
-use crate::handlers::provider_builder::build_llm_provider;
+use crate::handlers::shared::{self, ProxyError};
 use crate::middleware::proxy_auth::deduct_credits;
-use crate::models::{ApiKey, Model};
 use crate::models::model::ApiFormat;
+use crate::models::ApiKey;
 use crate::proto::anthropic::*;
 use crate::proto::convert::{anthropic_request_to_lortex, lortex_response_to_anthropic};
 use crate::state::AppState;
 
-/// 解析模型
-async fn resolve_model(
-    state: &AppState,
-    api_key: &ApiKey,
-    model_name: &str,
-) -> Result<Model, (StatusCode, Json<AnthropicError>)> {
-    let effective_name = if model_name == "PROXY_MANAGED" {
-        &api_key.default_model
-    } else {
-        model_name
-    };
-
-    let model = state
-        .store
-        .find_model(effective_name)
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AnthropicError::new("error", "api_error", "Store error")),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(AnthropicError::not_found(format!(
-                    "Model '{}' not found",
-                    effective_name
-                ))),
-            )
-        })?;
-
-    if !api_key.model_group.iter().any(|name| model.matches(name)) {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(AnthropicError::not_found(format!(
-                "Model '{}' not available for this API key",
-                effective_name
-            ))),
-        ));
-    }
-
-    if !model.enabled {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(AnthropicError::not_found(format!(
-                "Model '{}' is disabled",
-                effective_name
-            ))),
-        ));
-    }
-
-    Ok(model)
-}
-
-/// 构建 provider（Anthropic 格式优先）
-async fn build_provider(
-    state: &AppState,
-    model: &Model,
-) -> Result<Arc<dyn Provider>, (StatusCode, Json<AnthropicError>)> {
-    let provider_config = state
-        .store
-        .get_provider(&model.provider_id)
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AnthropicError::new("error", "api_error", "Store error")),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AnthropicError::new(
-                    "error",
-                    "api_error",
-                    format!("Provider '{}' not found", model.provider_id),
-                )),
-            )
-        })?;
-
-    if !provider_config.enabled {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(AnthropicError::new(
-                "error",
-                "api_error",
-                format!("Provider '{}' is disabled", model.provider_id),
-            )),
-        ));
-    }
-
-    Ok(build_llm_provider(&provider_config, model, &ApiFormat::Anthropic))
-}
-
-fn map_provider_error(e: ProviderError) -> (StatusCode, Json<AnthropicError>) {
-    tracing::error!(error = %e, "Upstream LLM call failed");
-    let (status, msg) = match &e {
-        ProviderError::RateLimited { .. } => (StatusCode::TOO_MANY_REQUESTS, e.to_string()),
-        ProviderError::AuthenticationFailed(_) => {
-            (StatusCode::UNAUTHORIZED, "Upstream authentication failed".into())
-        }
-        _ => (StatusCode::BAD_GATEWAY, e.to_string()),
-    };
-    (status, Json(AnthropicError::new("error", "api_error", msg)))
+fn to_anthropic_error(e: ProxyError) -> (StatusCode, Json<AnthropicError>) {
+    (e.status, Json(AnthropicError::new("error", "api_error", e.message)))
 }
 
 /// POST /v1/messages — 入口，根据 stream 字段分发
@@ -157,7 +53,7 @@ async fn messages_blocking(
     api_key: ApiKey,
     req: MessagesRequest,
 ) -> Result<Json<MessagesResponse>, (StatusCode, Json<AnthropicError>)> {
-    let model = resolve_model(&state, &api_key, &req.model).await?;
+    let model = shared::resolve_model(&state, &api_key, &req.model).await.map_err(to_anthropic_error)?;
     tracing::info!(
         key_name = %api_key.name,
         requested_model = %req.model,
@@ -168,19 +64,20 @@ async fn messages_blocking(
         "Routing Anthropic messages request"
     );
 
-    let provider = build_provider(&state, &model).await?;
+    let provider = shared::build_provider(&state, &model, &ApiFormat::Anthropic).await.map_err(to_anthropic_error)?;
 
     let mut lortex_req = anthropic_request_to_lortex(&req);
     lortex_req.model = model.vendor_model_name.clone();
 
     let start = std::time::Instant::now();
-    let lortex_resp = provider.complete(lortex_req).await.map_err(map_provider_error)?;
+    let lortex_resp = provider.complete(lortex_req).await.map_err(|e| to_anthropic_error(shared::map_provider_error(e)))?;
     let elapsed = start.elapsed();
 
     if let Some(usage) = &lortex_resp.usage {
         let credits = deduct_credits(
             &state, &api_key, &model,
-            usage.prompt_tokens, usage.completion_tokens, 0, 0,
+            usage.prompt_tokens, usage.completion_tokens,
+            usage.cache_creation_input_tokens, usage.cache_read_input_tokens,
             "/v1/messages", elapsed.as_millis() as u64,
         ).await.unwrap_or(0);
 
@@ -205,7 +102,7 @@ async fn messages_stream(
     api_key: ApiKey,
     req: MessagesRequest,
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<AnthropicError>)> {
-    let model = resolve_model(&state, &api_key, &req.model).await?;
+    let model = shared::resolve_model(&state, &api_key, &req.model).await.map_err(to_anthropic_error)?;
     tracing::info!(
         key_name = %api_key.name,
         requested_model = %req.model,
@@ -216,7 +113,7 @@ async fn messages_stream(
         "Routing Anthropic messages request (streaming)"
     );
 
-    let provider = build_provider(&state, &model).await?;
+    let provider = shared::build_provider(&state, &model, &ApiFormat::Anthropic).await.map_err(to_anthropic_error)?;
 
     let mut lortex_req = anthropic_request_to_lortex(&req);
     lortex_req.model = model.vendor_model_name.clone();
@@ -407,6 +304,8 @@ async fn messages_stream(
                     output_tokens = u.completion_tokens;
                     let prompt = u.prompt_tokens;
                     let completion = u.completion_tokens;
+                    let cache_creation = u.cache_creation_input_tokens;
+                    let cache_read = u.cache_read_input_tokens;
                     let state = state.clone();
                     let api_key = api_key.clone();
                     let model = model.clone();
@@ -414,7 +313,7 @@ async fn messages_stream(
                     tokio::spawn(async move {
                         let credits = deduct_credits(
                             &state, &api_key, &model,
-                            prompt, completion, 0, 0,
+                            prompt, completion, cache_creation, cache_read,
                             "/v1/messages", 0,
                         ).await.unwrap_or(0);
                         tracing::info!(

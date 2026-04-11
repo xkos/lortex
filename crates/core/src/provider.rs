@@ -73,6 +73,10 @@ pub struct Usage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
     pub total_tokens: u32,
+    #[serde(default)]
+    pub cache_creation_input_tokens: u32,
+    #[serde(default)]
+    pub cache_read_input_tokens: u32,
 }
 
 /// Reason the model stopped generating.
@@ -202,6 +206,8 @@ mod tests {
             prompt_tokens: 100,
             completion_tokens: 50,
             total_tokens: 150,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
         };
         let json_str = serde_json::to_string(&usage).unwrap();
         let back: Usage = serde_json::from_str(&json_str).unwrap();
@@ -265,6 +271,8 @@ mod tests {
                 prompt_tokens: 10,
                 completion_tokens: 20,
                 total_tokens: 30,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
             }),
             finish_reason: Some(FinishReason::Stop),
         };

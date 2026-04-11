@@ -129,6 +129,73 @@ pub async fn create(
     Ok((StatusCode::CREATED, Json(model)))
 }
 
+#[derive(Deserialize)]
+pub struct UpdateModelRequest {
+    pub display_name: Option<String>,
+    pub aliases: Option<Vec<String>>,
+    pub api_formats: Option<Vec<String>>,
+    pub supports_streaming: Option<bool>,
+    pub supports_tools: Option<bool>,
+    pub supports_structured_output: Option<bool>,
+    pub supports_vision: Option<bool>,
+    pub supports_prefill: Option<bool>,
+    pub supports_cache: Option<bool>,
+    pub supports_web_search: Option<bool>,
+    pub supports_batch: Option<bool>,
+    pub context_window: Option<u32>,
+    pub cache_enabled: Option<bool>,
+    pub input_multiplier: Option<f64>,
+    pub output_multiplier: Option<f64>,
+    pub cache_write_multiplier: Option<Option<f64>>,
+    pub cache_read_multiplier: Option<Option<f64>>,
+    pub image_input_multiplier: Option<Option<f64>>,
+    pub audio_input_multiplier: Option<Option<f64>>,
+    pub video_input_multiplier: Option<Option<f64>>,
+    pub image_generation_multiplier: Option<Option<f64>>,
+    pub tts_multiplier: Option<Option<f64>>,
+    pub extra_headers: Option<HashMap<String, String>>,
+    pub enabled: Option<bool>,
+}
+
+pub async fn update(
+    State(state): State<AppState>,
+    Path((provider_id, model_name)): Path<(String, String)>,
+    Json(req): Json<UpdateModelRequest>,
+) -> Result<Json<Model>, StatusCode> {
+    let mut model = state.store.get_model(&provider_id, &model_name).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    if let Some(v) = req.display_name { model.display_name = v; }
+    if let Some(v) = req.aliases { model.aliases = v; }
+    if let Some(v) = req.api_formats { model.api_formats = v.iter().map(|s| ApiFormat::from_str(s)).collect(); }
+    if let Some(v) = req.supports_streaming { model.supports_streaming = v; }
+    if let Some(v) = req.supports_tools { model.supports_tools = v; }
+    if let Some(v) = req.supports_structured_output { model.supports_structured_output = v; }
+    if let Some(v) = req.supports_vision { model.supports_vision = v; }
+    if let Some(v) = req.supports_prefill { model.supports_prefill = v; }
+    if let Some(v) = req.supports_cache { model.supports_cache = v; }
+    if let Some(v) = req.supports_web_search { model.supports_web_search = v; }
+    if let Some(v) = req.supports_batch { model.supports_batch = v; }
+    if let Some(v) = req.context_window { model.context_window = v; }
+    if let Some(v) = req.cache_enabled { model.cache_enabled = v; }
+    if let Some(v) = req.input_multiplier { model.input_multiplier = v; }
+    if let Some(v) = req.output_multiplier { model.output_multiplier = v; }
+    if let Some(v) = req.cache_write_multiplier { model.cache_write_multiplier = v; }
+    if let Some(v) = req.cache_read_multiplier { model.cache_read_multiplier = v; }
+    if let Some(v) = req.image_input_multiplier { model.image_input_multiplier = v; }
+    if let Some(v) = req.audio_input_multiplier { model.audio_input_multiplier = v; }
+    if let Some(v) = req.video_input_multiplier { model.video_input_multiplier = v; }
+    if let Some(v) = req.image_generation_multiplier { model.image_generation_multiplier = v; }
+    if let Some(v) = req.tts_multiplier { model.tts_multiplier = v; }
+    if let Some(v) = req.extra_headers { model.extra_headers = v; }
+    if let Some(v) = req.enabled { model.enabled = v; }
+
+    state.store.upsert_model(&model).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(model))
+}
+
 pub async fn delete(
     State(state): State<AppState>,
     Path((provider_id, model_name)): Path<(String, String)>,
