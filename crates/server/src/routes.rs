@@ -5,6 +5,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use tower_http::trace::TraceLayer;
 
 use crate::handlers::{admin, chat, messages, models};
 use crate::middleware::auth::{admin_auth, AdminKey};
@@ -41,4 +42,5 @@ pub fn app_router(state: AppState, admin_key: String) -> Router {
     Router::new()
         .nest("/admin/api/v1", admin_routes(state.clone(), admin_key))
         .merge(proxy_routes(state))
+        .layer(TraceLayer::new_for_http())
 }

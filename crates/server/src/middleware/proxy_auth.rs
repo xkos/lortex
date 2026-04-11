@@ -52,6 +52,7 @@ pub async fn proxy_auth(
 
     // 检查是否启用
     if !api_key.enabled {
+        tracing::warn!(key_id = %api_key.id, key_name = %api_key.name, "API key is disabled");
         return Err((
             StatusCode::UNAUTHORIZED,
             Json(ErrorResponse::auth_error("API key is disabled")),
@@ -61,12 +62,25 @@ pub async fn proxy_auth(
 
     // 检查额度
     if !api_key.has_credits() {
+        tracing::warn!(
+            key_id = %api_key.id,
+            key_name = %api_key.name,
+            credit_used = api_key.credit_used,
+            credit_limit = api_key.credit_limit,
+            "Credit limit exceeded"
+        );
         return Err((
             StatusCode::TOO_MANY_REQUESTS,
             Json(ErrorResponse::rate_limit("Credit limit exceeded")),
         )
             .into_response());
     }
+
+    tracing::debug!(
+        key_id = %api_key.id,
+        key_name = %api_key.name,
+        "API key authenticated"
+    );
 
     // 注入 ApiKey 到 request extensions
     let mut request = request;
