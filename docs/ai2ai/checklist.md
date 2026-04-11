@@ -1,19 +1,20 @@
 # 测试 Checklist
 
 > AI 生成和维护，人审核和勾选。
-> 当前迭代：005b-usage-stats
+> 当前迭代：006a-mvp-polish
 
 ## 本迭代新增
 
-- [x] UsageRecord 写入: 每次 LLM 调用后 usage 记录被写入
-- [x] Usage 查询 API: POST /admin/api/v1/usage 返回记录列表
-- [x] Usage 汇总 API: POST /admin/api/v1/usage/summary 返回汇总数据
-- [x] Admin Web Usage 页面: 可查看汇总卡片 + 明细表格
-- [x] 全量: `cargo test --workspace` → 265 tests passed, 0 failed
+- [ ] Model Update API: PUT /admin/api/v1/models/{provider}/{name} 可部分更新 Model
+- [ ] Admin Web 编辑: Model 列表中可编辑现有 Model
+- [ ] extra_headers 注入: Model 配置的 extra_headers 出现在上游请求头
+- [ ] resolve_model 去重: chat.rs 和 messages.rs 使用 shared 模块
+- [ ] cache token: Usage 包含 cache_creation/read_input_tokens，deduct_credits 传递真实值
+- [ ] 全量: `cargo test --workspace` → 289 tests passed, 0 failed
 
 ## 回归测试
 
-- [x] server: `cargo test -p lortex-server` → 57 unit + 21 integration tests passed
-- [x] proxy API: `cargo test -p lortex-server --test proxy_api` → 15 tests passed
-- [x] admin API: `cargo test -p lortex-server --test admin_api` → 6 tests passed (含 usage)
-- [x] core + router + others: 全部通过
+- [ ] server: `cargo test -p lortex-server` → 57 unit + 21 integration tests passed
+- [ ] proxy API: `cargo test -p lortex-server --test proxy_api` → 15 tests passed
+- [ ] admin API: `cargo test -p lortex-server --test admin_api` → 6 tests passed
+- [ ] core + router + others: 全部通过
