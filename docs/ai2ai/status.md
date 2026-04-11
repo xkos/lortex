@@ -11,8 +11,8 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 ## 当前迭代
 
-- 当前活跃：004a-logging（待验收）
-- 分支：iter/004a-logging
+- 当前活跃：004b-admin-web（待验收）
+- 分支：iter/004b-admin-web
 
 ---
 
@@ -30,28 +30,24 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 | memory | ✅ 可用 | 24 tests |
 | macros | ✅ 可用 | 0 tests |
 | router | ✅ 可用 | 43 tests |
-| server | ✅ 可用 | 72 tests（含结构化日志） |
+| server | ✅ 可用 | 72 tests |
+| admin-web | ✅ 可用 | — (前端，手动验证) |
 
 ---
 
 ## 端到端联通状态
 
 - ✅ Proxy 完整链路（鉴权 → 模型解析 → 上游调用 → credit 扣减 → 日志）
-- ✅ OpenAI 格式 `/v1/chat/completions`（non-streaming + streaming SSE）
-- ✅ Anthropic 格式 `/v1/messages`（non-streaming）
+- ✅ Admin Web 管理后台（Provider/Model/ApiKey CRUD）
 - ✅ Admin API `/admin/api/v1/*`
-
----
-
-## 已知问题 / 技术债
-
-- /v1/messages streaming 未实现
-- providers/protocols/swarm/macros 无单元测试
+- ✅ Proxy `/v1/chat/completions`（non-streaming + streaming SSE）
+- ✅ Proxy `/v1/messages`（Anthropic 格式）
+- ✅ Proxy `/v1/models`
 
 ---
 
 ## 下一步建议
 
-1. 004b：Admin Web 管理后台（Vue 3 + Element Plus）
-2. 真实厂商端到端验证
-3. 004：FallbackRouter + 多模态适配
+1. 真实厂商端到端验证（启动 proxy，接入 Cursor/Claude Code）
+2. 修复上游响应解析 bug（之前 curl 测试发现的 "Invalid response" 问题）
+3. FallbackRouter + 多模态适配

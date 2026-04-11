@@ -151,3 +151,14 @@ pub async fn reset_credits(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::OK)
 }
+
+/// 获取完整 API Key（admin only）
+pub async fn reveal_key(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let key = state.store.get_api_key_by_id(&id).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(serde_json::json!({"key": key.key})))
+}

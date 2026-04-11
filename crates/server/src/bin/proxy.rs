@@ -31,6 +31,10 @@ struct Cli {
     /// Admin API 鉴权密钥
     #[arg(long, env = "LORTEX_ADMIN_KEY")]
     admin_key: String,
+
+    /// 启用 Admin Web 管理后台
+    #[arg(long, default_value = "false", env = "LORTEX_ADMIN_WEB")]
+    with_admin_web: bool,
 }
 
 #[tokio::main]
@@ -49,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
         host = %cli.host,
         port = cli.port,
         admin_port = ?cli.admin_port,
+        admin_web = cli.with_admin_web,
         db = %cli.db,
         "Starting Lortex Proxy"
     );
@@ -71,12 +76,16 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // 构建路由
-    let app = app_router(state.clone(), config.admin_key.clone());
+    let app = app_router(state.clone(), config.admin_key.clone(), cli.with_admin_web);
 
     // 启动主服务
     let addr = format!("{}:{}", config.host, config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("Proxy listening on {}", addr);
+
+    if cli.with_admin_web {
+        tracing::info!("Admin Web available at http://{}/admin/web/", addr);
+    }
 
     if let Some(admin_port) = config.admin_port {
         // Admin API 独立端口
@@ -87,9 +96,10 @@ async fn main() -> anyhow::Result<()> {
         let admin_app = lortex_server::routes::admin_routes(state, config.admin_key);
         let admin_app = axum::Router::new().nest("/admin/api/v1", admin_app);
 
-        // 主端口不含 admin 路由
-        let main_app = axum::Router::new();
-        // TODO: 003b 添加 proxy 路由
+        // 主端口：proxy 路由
+        let main_app = lortex_server::routes::proxy_routes(
+            AppState { store: Arc::new(SqliteStore::new(&config.db_path).await?) },
+        );
 
         tokio::select! {
             r = axum::serve(listener, main_app) => r?,

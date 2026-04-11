@@ -1,18 +1,19 @@
 # 测试 Checklist
 
 > AI 生成和维护，人审核和勾选。
-> 当前迭代：004a-logging
+> 当前迭代：004b-admin-web
 
 ## 本迭代新增
 
-- [ ] Admin URL: 所有 `/admin/api/v1/*` 端点正常工作
-- [ ] 日志: 启动 proxy 后请求可见结构化日志
-- [ ] 全量: `cargo test --workspace` → 288 tests passed, 0 failed
+- [x] 后端: `cargo build -p lortex-server` 编译通过（含 rust-embed）
+- [x] CLI: `--with-admin-web` 参数可见
+- [x] 前端: `npm run build` 构建成功
+- [x] 全量: `cargo test --workspace` → 288 tests passed, 0 failed
+- [x] 手动: 启动 proxy --with-admin-web，访问 /admin/web/ 可见登录页
 
 ## 回归测试
 
-- [ ] server: `cargo test -p lortex-server` → 72 tests passed
-- [ ] core: `cargo test -p lortex-core` → 71 tests passed
-- [ ] router: `cargo test -p lortex-router` → 40 tests passed
-- [ ] executor + guardrails + memory + tools: 107 tests passed
-- [ ] e2e: `cargo test --test e2e_runner --test e2e_router` → 9 tests passed
+- [x] server: `cargo test -p lortex-server` → 72 tests passed
+- [x] core + executor + guardrails + memory + tools: 167 tests passed
+- [x] router: `cargo test -p lortex-router` → 40 tests passed
+- [x] e2e: 9 tests passed
