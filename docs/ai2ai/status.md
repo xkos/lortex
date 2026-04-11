@@ -11,8 +11,8 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 ## 当前迭代
 
-- 当前活跃：005a-messages-streaming（待验收）
-- 分支：iter/005a-messages-streaming
+- 当前活跃：005b-usage-stats（已完成）
+- 分支：iter/005b-usage-stats
 
 ---
 
@@ -30,7 +30,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 | memory | ✅ 可用 | 24 tests |
 | macros | ✅ 可用 | 0 tests |
 | router | ✅ 可用 | 43 tests |
-| server | ✅ 可用 | 76 tests |
+| server | ✅ 可用 | 78 tests |
 | admin-web | ✅ 可用 | — (前端) |
 
 ---
@@ -54,11 +54,13 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 | SSE 响应兼容（中转服务） | ✅ |
 | 结构化日志 | ✅ |
 | Admin Web 管理后台 | ✅ |
+| 用量统计（记录+查询+Web） | ✅ |
 
 ---
 
 ## 下一步建议
 
-1. 真实厂商端到端验证（删除旧 db，重新配置，测试 cursorlink）
-2. FallbackRouter（故障自动切换）
+1. 006a: MVP 补齐（Model update、extra_headers 注入、resolve_model 去重、cache token 提取）
+2. 006b: FallbackRouter + 健康检测
 3. /v1/embeddings 实现
+4. Rate Limiting（RPM/TPM per ApiKey）

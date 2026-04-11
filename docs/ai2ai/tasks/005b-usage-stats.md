@@ -1,6 +1,6 @@
 # 任务 005b: 用量统计
 
-> 状态：🔨 进行中
+> 状态：✅ 已关闭
 > 分支：iter/005b-usage-stats
 > 配对迭代：[iterations/005b-usage-stats.md](../iterations/005b-usage-stats.md)
 
@@ -14,11 +14,11 @@
 - `cargo test --workspace` 全量通过
 
 ## 任务分解
-- [ ] T1: UsageRecord 数据模型 + ProxyStore 扩展 + handler 写入
+- [x] T1: UsageRecord 数据模型 + ProxyStore 扩展 + handler 写入
   - 验证：每次请求后 usage_records 有记录
-- [ ] T2: /admin/api/v1/usage 查询端点
+- [x] T2: /admin/api/v1/usage 查询端点
   - 验证：按 key / 模型 / 时间段过滤返回正确数据
-- [ ] T3: Admin Web 用量统计页面
+- [x] T3: Admin Web 用量统计页面
   - 验证：Web 可查看用量数据
-- [ ] T4: 测试验证
-  - 验证：cargo test --workspace 全量通过
+- [x] T4: 测试验证
+  - 验证：cargo test --workspace 全量通过（265 tests）
