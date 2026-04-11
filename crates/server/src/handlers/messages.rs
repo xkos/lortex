@@ -53,24 +53,22 @@ async fn messages_blocking(
     api_key: ApiKey,
     req: MessagesRequest,
 ) -> Result<Json<MessagesResponse>, (StatusCode, Json<AnthropicError>)> {
-    let model = shared::resolve_model(&state, &api_key, &req.model).await.map_err(to_anthropic_error)?;
-    tracing::info!(
-        key_name = %api_key.name,
-        requested_model = %req.model,
-        resolved_model = %model.id(),
-        provider = %model.provider_id,
-        endpoint = "/v1/messages",
-        stream = false,
-        "Routing Anthropic messages request"
-    );
-
-    let provider = shared::build_provider(&state, &model, &ApiFormat::Anthropic).await.map_err(to_anthropic_error)?;
-
-    let mut lortex_req = anthropic_request_to_lortex(&req);
-    lortex_req.model = model.vendor_model_name.clone();
-
     let start = std::time::Instant::now();
-    let lortex_resp = provider.complete(lortex_req).await.map_err(|e| to_anthropic_error(shared::map_provider_error(e)))?;
+
+    let (lortex_resp, model) = shared::complete_with_fallback(
+        &state,
+        &api_key,
+        &req.model,
+        &ApiFormat::Anthropic,
+        |model| {
+            let mut lortex_req = anthropic_request_to_lortex(&req);
+            lortex_req.model = model.vendor_model_name.clone();
+            lortex_req
+        },
+    )
+    .await
+    .map_err(to_anthropic_error)?;
+
     let elapsed = start.elapsed();
 
     if let Some(usage) = &lortex_resp.usage {
@@ -102,7 +100,33 @@ async fn messages_stream(
     api_key: ApiKey,
     req: MessagesRequest,
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<AnthropicError>)> {
-    let model = shared::resolve_model(&state, &api_key, &req.model).await.map_err(to_anthropic_error)?;
+    // 解析主模型 + fallback，选第一个可用的
+    let models = shared::resolve_models_with_fallback(&state, &api_key, &req.model)
+        .await
+        .map_err(to_anthropic_error)?;
+
+    let mut model = None;
+    let mut provider = None;
+    for m in &models {
+        let available = state.circuit_breaker.is_available(&m.provider_id).await.unwrap_or(true);
+        if !available {
+            tracing::info!(provider = %m.provider_id, "Skipping circuit-broken provider (stream)");
+            continue;
+        }
+        match shared::build_provider(&state, m, &ApiFormat::Anthropic).await {
+            Ok(p) => {
+                model = Some(m.clone());
+                provider = Some(p);
+                break;
+            }
+            Err(e) => {
+                tracing::warn!(model = %m.id(), error = %e.message, "Failed to build provider (stream)");
+            }
+        }
+    }
+    let model = model.ok_or_else(|| to_anthropic_error(shared::ProxyError::unavailable("All models unavailable")))?;
+    let provider = provider.unwrap();
+
     tracing::info!(
         key_name = %api_key.name,
         requested_model = %req.model,
@@ -112,8 +136,6 @@ async fn messages_stream(
         stream = true,
         "Routing Anthropic messages request (streaming)"
     );
-
-    let provider = shared::build_provider(&state, &model, &ApiFormat::Anthropic).await.map_err(to_anthropic_error)?;
 
     let mut lortex_req = anthropic_request_to_lortex(&req);
     lortex_req.model = model.vendor_model_name.clone();

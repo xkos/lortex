@@ -56,23 +56,22 @@ async fn chat_completions_blocking(
     api_key: ApiKey,
     req: ChatCompletionRequest,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let model = shared::resolve_model(&state, &api_key, &req.model).await.map_err(to_oai_error)?;
-    tracing::info!(
-        key_name = %api_key.name,
-        requested_model = %req.model,
-        resolved_model = %model.id(),
-        provider = %model.provider_id,
-        stream = false,
-        "Routing chat completion"
-    );
-
-    let provider = shared::build_provider(&state, &model, &ApiFormat::OpenAI).await.map_err(to_oai_error)?;
-
-    let mut lortex_req = openai_request_to_lortex(&req);
-    lortex_req.model = model.vendor_model_name.clone();
-
     let start = std::time::Instant::now();
-    let lortex_resp = provider.complete(lortex_req).await.map_err(|e| to_oai_error(shared::map_provider_error(e)))?;
+
+    let (lortex_resp, model) = shared::complete_with_fallback(
+        &state,
+        &api_key,
+        &req.model,
+        &ApiFormat::OpenAI,
+        |model| {
+            let mut lortex_req = openai_request_to_lortex(&req);
+            lortex_req.model = model.vendor_model_name.clone();
+            lortex_req
+        },
+    )
+    .await
+    .map_err(to_oai_error)?;
+
     let elapsed = start.elapsed();
 
     if let Some(usage) = &lortex_resp.usage {
@@ -105,7 +104,33 @@ async fn chat_completions_stream(
     api_key: ApiKey,
     req: ChatCompletionRequest,
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
-    let model = shared::resolve_model(&state, &api_key, &req.model).await.map_err(to_oai_error)?;
+    // 解析主模型 + fallback，选第一个可用的
+    let models = shared::resolve_models_with_fallback(&state, &api_key, &req.model)
+        .await
+        .map_err(to_oai_error)?;
+
+    let mut model = None;
+    let mut provider = None;
+    for m in &models {
+        let available = state.circuit_breaker.is_available(&m.provider_id).await.unwrap_or(true);
+        if !available {
+            tracing::info!(provider = %m.provider_id, "Skipping circuit-broken provider (stream)");
+            continue;
+        }
+        match shared::build_provider(&state, m, &ApiFormat::OpenAI).await {
+            Ok(p) => {
+                model = Some(m.clone());
+                provider = Some(p);
+                break;
+            }
+            Err(e) => {
+                tracing::warn!(model = %m.id(), error = %e.message, "Failed to build provider (stream)");
+            }
+        }
+    }
+    let model = model.ok_or_else(|| to_oai_error(shared::ProxyError::unavailable("All models unavailable")))?;
+    let provider = provider.unwrap();
+
     tracing::info!(
         key_name = %api_key.name,
         requested_model = %req.model,
@@ -114,8 +139,6 @@ async fn chat_completions_stream(
         stream = true,
         "Routing chat completion (streaming)"
     );
-
-    let provider = shared::build_provider(&state, &model, &ApiFormat::OpenAI).await.map_err(to_oai_error)?;
 
     let mut lortex_req = openai_request_to_lortex(&req);
     lortex_req.model = model.vendor_model_name.clone();

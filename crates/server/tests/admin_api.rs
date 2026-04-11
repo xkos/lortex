@@ -15,9 +15,7 @@ const ADMIN_KEY: &str = "test-admin-key";
 async fn setup() -> axum::Router {
     let store = SqliteStore::new(":memory:").await.unwrap();
     store.migrate().await.unwrap();
-    let state = AppState {
-        store: Arc::new(store),
-    };
+    let state = AppState::new(Arc::new(store));
     app_router(state, ADMIN_KEY.into(), false)
 }
 

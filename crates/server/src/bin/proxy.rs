@@ -63,9 +63,7 @@ async fn main() -> anyhow::Result<()> {
     store.migrate().await?;
     tracing::info!("Database initialized: {}", cli.db);
 
-    let state = AppState {
-        store: Arc::new(store),
-    };
+    let state = AppState::new(Arc::new(store));
 
     let config = ServerConfig {
         port: cli.port,
@@ -98,7 +96,7 @@ async fn main() -> anyhow::Result<()> {
 
         // 主端口：proxy 路由
         let main_app = lortex_server::routes::proxy_routes(
-            AppState { store: Arc::new(SqliteStore::new(&config.db_path).await?) },
+            AppState::new(Arc::new(SqliteStore::new(&config.db_path).await?)),
         );
 
         tokio::select! {
