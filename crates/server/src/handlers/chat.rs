@@ -60,6 +60,7 @@ async fn chat_completions_blocking(
     req: ChatCompletionRequest,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let start = std::time::Instant::now();
+    let estimated_chars = serde_json::to_string(&req).map(|s| s.len() as u64).unwrap_or(0);
 
     let (lortex_resp, model) = shared::complete_with_fallback(
         &state,
@@ -83,7 +84,7 @@ async fn chat_completions_blocking(
             &state, &api_key, &model,
             usage.prompt_tokens, usage.completion_tokens,
             usage.cache_creation_input_tokens, usage.cache_read_input_tokens,
-            "/v1/chat/completions", elapsed.as_millis() as u64,
+            "/v1/chat/completions", elapsed.as_millis() as u64, estimated_chars,
         ).await.unwrap_or(0);
 
         tracing::info!(
@@ -109,6 +110,8 @@ async fn chat_completions_stream(
     client_headers: std::collections::HashMap<String, String>,
     req: ChatCompletionRequest,
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
+    let estimated_chars = serde_json::to_string(&req).map(|s| s.len() as u64).unwrap_or(0);
+
     // 解析主模型 + fallback，选第一个可用的
     let models = shared::resolve_models_with_fallback(&state, &api_key, &req.model)
         .await
@@ -202,7 +205,7 @@ async fn chat_completions_stream(
                         let credits = deduct_credits(
                             &state, &api_key, &model,
                             prompt, completion, cache_creation, cache_read,
-                            "/v1/chat/completions", 0,
+                            "/v1/chat/completions", 0, estimated_chars,
                         ).await.unwrap_or(0);
                         tracing::info!(
                             key_name = %api_key.name,
