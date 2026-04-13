@@ -30,6 +30,18 @@
           <span v-else> / unlimited</span>
         </template>
       </el-table-column>
+      <el-table-column label="RPM" width="80">
+        <template #default="{ row }">
+          <span v-if="row.rpm_limit > 0">{{ row.rpm_limit }}</span>
+          <span v-else style="color: #909399;">-</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="TPM" width="100">
+        <template #default="{ row }">
+          <span v-if="row.tpm_limit > 0">{{ row.tpm_limit.toLocaleString() }}</span>
+          <span v-else style="color: #909399;">-</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="enabled" label="Status" width="100">
         <template #default="{ row }">
           <el-tag :type="row.enabled ? 'success' : 'danger'" size="small">
@@ -74,6 +86,14 @@
           <el-input-number v-model="createForm.credit_limit" :min="0" :step="10000" />
           <span style="margin-left: 8px; color: #909399;">0 = unlimited</span>
         </el-form-item>
+        <el-form-item label="RPM Limit">
+          <el-input-number v-model="createForm.rpm_limit" :min="0" :step="10" />
+          <span style="margin-left: 8px; color: #909399;">0 = unlimited</span>
+        </el-form-item>
+        <el-form-item label="TPM Limit">
+          <el-input-number v-model="createForm.tpm_limit" :min="0" :step="10000" />
+          <span style="margin-left: 8px; color: #909399;">0 = unlimited</span>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="createDialogVisible = false">Cancel</el-button>
@@ -115,6 +135,14 @@
         <el-form-item label="Credit Limit">
           <el-input-number v-model="editForm.credit_limit" :min="0" :step="10000" />
         </el-form-item>
+        <el-form-item label="RPM Limit">
+          <el-input-number v-model="editForm.rpm_limit" :min="0" :step="10" />
+          <span style="margin-left: 8px; color: #909399;">0 = unlimited</span>
+        </el-form-item>
+        <el-form-item label="TPM Limit">
+          <el-input-number v-model="editForm.tpm_limit" :min="0" :step="10000" />
+          <span style="margin-left: 8px; color: #909399;">0 = unlimited</span>
+        </el-form-item>
         <el-form-item label="Enabled">
           <el-switch v-model="editForm.enabled" />
         </el-form-item>
@@ -147,6 +175,8 @@ const createForm = ref({
   model_group: [] as string[],
   default_model: '',
   credit_limit: 0,
+  rpm_limit: 0,
+  tpm_limit: 0,
 })
 
 const editForm = ref({
@@ -155,6 +185,8 @@ const editForm = ref({
   model_group: [] as string[],
   default_model: '',
   credit_limit: 0,
+  rpm_limit: 0,
+  tpm_limit: 0,
   enabled: true,
 })
 
@@ -182,7 +214,7 @@ async function fetchModels() {
 }
 
 function showCreate() {
-  createForm.value = { name: '', model_group: [], default_model: '', credit_limit: 0 }
+  createForm.value = { name: '', model_group: [], default_model: '', credit_limit: 0, rpm_limit: 0, tpm_limit: 0 }
   createDialogVisible.value = true
 }
 
@@ -193,6 +225,8 @@ function showEdit(row: any) {
     model_group: row.model_group || [],
     default_model: row.default_model,
     credit_limit: row.credit_limit,
+    rpm_limit: row.rpm_limit || 0,
+    tpm_limit: row.tpm_limit || 0,
     enabled: row.enabled,
   }
   editDialogVisible.value = true
