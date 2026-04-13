@@ -57,6 +57,7 @@ async fn messages_blocking(
     req: MessagesRequest,
 ) -> Result<Json<MessagesResponse>, (StatusCode, Json<AnthropicError>)> {
     let start = std::time::Instant::now();
+    let estimated_chars = serde_json::to_string(&req).map(|s| s.len() as u64).unwrap_or(0);
 
     let (lortex_resp, model) = shared::complete_with_fallback(
         &state,
@@ -80,7 +81,7 @@ async fn messages_blocking(
             &state, &api_key, &model,
             usage.prompt_tokens, usage.completion_tokens,
             usage.cache_creation_input_tokens, usage.cache_read_input_tokens,
-            "/v1/messages", elapsed.as_millis() as u64,
+            "/v1/messages", elapsed.as_millis() as u64, estimated_chars,
         ).await.unwrap_or(0);
 
         tracing::info!(
@@ -105,6 +106,8 @@ async fn messages_stream(
     client_headers: std::collections::HashMap<String, String>,
     req: MessagesRequest,
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<AnthropicError>)> {
+    let estimated_chars = serde_json::to_string(&req).map(|s| s.len() as u64).unwrap_or(0);
+
     // 解析主模型 + fallback，选第一个可用的
     let models = shared::resolve_models_with_fallback(&state, &api_key, &req.model)
         .await
@@ -330,7 +333,7 @@ async fn messages_stream(
                         let credits = deduct_credits(
                             &state, &api_key, &model,
                             prompt, completion, cache_creation, cache_read,
-                            "/v1/messages", 0,
+                            "/v1/messages", 0, estimated_chars,
                         ).await.unwrap_or(0);
                         tracing::info!(
                             key_name = %api_key.name,

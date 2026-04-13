@@ -99,6 +99,11 @@
           {{ row.cache_read_tokens ? row.cache_read_tokens.toLocaleString() : '-' }}
         </template>
       </el-table-column>
+      <el-table-column prop="estimated_chars" label="Est.Chars" width="110" align="right">
+        <template #default="{ row }">
+          {{ row.estimated_chars ? row.estimated_chars.toLocaleString() : '-' }}
+        </template>
+      </el-table-column>
       <el-table-column prop="credits_consumed" label="Credits" width="100" align="right">
         <template #default="{ row }">
           {{ row.credits_consumed.toLocaleString() }}
