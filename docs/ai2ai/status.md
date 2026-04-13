@@ -11,8 +11,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 ## 当前迭代
 
-- 当前活跃：007-estimated-chars（已完成，已验收）
-- 分支：iter/007-estimated-chars
+- 当前活跃：无（008-observability-layer 已验收合并）
 
 ---
 
@@ -22,7 +21,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 |------|------|---------|
 | core | ✅ 可用 | 71 tests |
 | executor | ✅ 可用 | 13 tests |
-| providers | ✅ 可用（extra_headers + cache token） | 0 tests |
+| providers | ✅ 可用（extra_headers + cache token） | 14 tests |
 | protocols | 🔨 部分 | 0 tests |
 | tools | ✅ 可用 | 24 tests |
 | swarm | ✅ 可用 | 0 tests |
@@ -30,7 +29,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 | memory | ✅ 可用 | 24 tests |
 | macros | ✅ 可用 | 0 tests |
 | router | ✅ 可用 | 40 tests |
-| server | ✅ 可用 | 93 tests |
+| server | ✅ 可用 | 95 tests |
 | admin-web | ✅ 可用 | — (前端) |
 
 ---
@@ -63,6 +62,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 | CircuitBreaker 熔断保护 | ✅ |
 | Prompt cache 透传（cache_control + header 合并） | ✅ |
 | estimated_chars 请求字符数估算 | ✅ |
+| tracing 观测架构（UsageLayer） | ✅ |
 
 ---
 
