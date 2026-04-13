@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use crate::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+use crate::rate_limiter::RateLimiter;
 use crate::store::ProxyStore;
 
 /// 应用共享状态，注入到 axum handlers
@@ -10,6 +11,7 @@ use crate::store::ProxyStore;
 pub struct AppState {
     pub store: Arc<dyn ProxyStore>,
     pub circuit_breaker: Arc<CircuitBreaker>,
+    pub rate_limiter: Arc<RateLimiter>,
 }
 
 impl AppState {
@@ -19,6 +21,7 @@ impl AppState {
         Self {
             store,
             circuit_breaker: Arc::new(cb),
+            rate_limiter: Arc::new(RateLimiter::new()),
         }
     }
 }
