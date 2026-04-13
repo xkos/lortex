@@ -84,7 +84,7 @@ async fn chat_completions_blocking(
             &state, &api_key, &model,
             usage.prompt_tokens, usage.completion_tokens,
             usage.cache_creation_input_tokens, usage.cache_read_input_tokens,
-            "/v1/chat/completions", elapsed.as_millis() as u64, estimated_chars,
+            "/v1/chat/completions", elapsed.as_millis() as u64, elapsed.as_millis() as u64, estimated_chars,
         ).await.unwrap_or(0);
 
         tracing::info!(
@@ -110,6 +110,7 @@ async fn chat_completions_stream(
     client_headers: std::collections::HashMap<String, String>,
     req: ChatCompletionRequest,
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
+    let start = std::time::Instant::now();
     let estimated_chars = serde_json::to_string(&req).map(|s| s.len() as u64).unwrap_or(0);
 
     // 解析主模型 + fallback，选第一个可用的
@@ -168,9 +169,14 @@ async fn chat_completions_stream(
 
     let event_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
 
+    let mut ttft_ms: u64 = 0;
+
     let sse_stream = event_stream.map(move |event: Result<StreamEvent, ProviderError>| {
         let chunk = match event {
             Ok(StreamEvent::ContentDelta { delta }) => {
+                if ttft_ms == 0 {
+                    ttft_ms = start.elapsed().as_millis() as u64;
+                }
                 let chunk = ChatCompletionChunk {
                     id: completion_id.clone(),
                     object: "chat.completion.chunk".into(),
@@ -190,6 +196,7 @@ async fn chat_completions_stream(
                 serde_json::to_string(&chunk).unwrap()
             }
             Ok(StreamEvent::Done { usage, finish_reason }) => {
+                let latency_ms = start.elapsed().as_millis() as u64;
                 // Deduct credits in background if we have usage
                 if let Some(ref u) = usage {
                     let prompt = u.prompt_tokens;
@@ -205,7 +212,7 @@ async fn chat_completions_stream(
                         let credits = deduct_credits(
                             &state, &api_key, &model,
                             prompt, completion, cache_creation, cache_read,
-                            "/v1/chat/completions", 0, estimated_chars,
+                            "/v1/chat/completions", ttft_ms, latency_ms, estimated_chars,
                         ).await.unwrap_or(0);
                         tracing::info!(
                             key_name = %api_key.name,
@@ -214,6 +221,8 @@ async fn chat_completions_stream(
                             output_tokens = completion,
                             total_tokens = total,
                             credits_deducted = credits,
+                            ttft_ms = ttft_ms,
+                            latency_ms = latency_ms,
                             "Streaming chat completion done"
                         );
                     });

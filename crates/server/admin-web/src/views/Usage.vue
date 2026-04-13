@@ -109,6 +109,11 @@
           {{ row.credits_consumed.toLocaleString() }}
         </template>
       </el-table-column>
+      <el-table-column prop="ttft_ms" label="TTFT" width="90" align="right">
+        <template #default="{ row }">
+          {{ row.ttft_ms > 0 ? row.ttft_ms + 'ms' : '-' }}
+        </template>
+      </el-table-column>
       <el-table-column prop="latency_ms" label="Latency" width="100" align="right">
         <template #default="{ row }">
           {{ row.latency_ms > 0 ? row.latency_ms + 'ms' : '-' }}

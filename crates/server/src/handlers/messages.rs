@@ -81,7 +81,7 @@ async fn messages_blocking(
             &state, &api_key, &model,
             usage.prompt_tokens, usage.completion_tokens,
             usage.cache_creation_input_tokens, usage.cache_read_input_tokens,
-            "/v1/messages", elapsed.as_millis() as u64, estimated_chars,
+            "/v1/messages", elapsed.as_millis() as u64, elapsed.as_millis() as u64, estimated_chars,
         ).await.unwrap_or(0);
 
         tracing::info!(
@@ -106,6 +106,7 @@ async fn messages_stream(
     client_headers: std::collections::HashMap<String, String>,
     req: MessagesRequest,
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<AnthropicError>)> {
+    let start = std::time::Instant::now();
     let estimated_chars = serde_json::to_string(&req).map(|s| s.len() as u64).unwrap_or(0);
 
     // 解析主模型 + fallback，选第一个可用的
@@ -170,6 +171,7 @@ async fn messages_stream(
     let mut current_tool_indices: std::collections::HashMap<usize, usize> = std::collections::HashMap::new(); // OpenAI tool index → Anthropic block index
     let mut output_tokens: u32 = 0;
     let mut message_start_sent = false;
+    let mut ttft_ms: u64 = 0;
 
     // Convert StreamEvents to Anthropic SSE events
     // message_start is emitted on the first upstream event (not synthesized early)
@@ -179,6 +181,7 @@ async fn messages_stream(
         // Emit message_start on first upstream event (reflects real TTFB)
         if !message_start_sent {
             message_start_sent = true;
+            ttft_ms = start.elapsed().as_millis() as u64;
             let start_event = MessageStartEvent {
                 event_type: "message_start".into(),
                 message: MessageStartData {
@@ -319,6 +322,7 @@ async fn messages_stream(
                 }
 
                 // Deduct credits
+                let latency_ms = start.elapsed().as_millis() as u64;
                 if let Some(ref u) = usage {
                     output_tokens = u.completion_tokens;
                     let prompt = u.prompt_tokens;
@@ -333,7 +337,7 @@ async fn messages_stream(
                         let credits = deduct_credits(
                             &state, &api_key, &model,
                             prompt, completion, cache_creation, cache_read,
-                            "/v1/messages", 0, estimated_chars,
+                            "/v1/messages", ttft_ms, latency_ms, estimated_chars,
                         ).await.unwrap_or(0);
                         tracing::info!(
                             key_name = %api_key.name,
@@ -341,6 +345,8 @@ async fn messages_stream(
                             input_tokens = prompt,
                             output_tokens = completion,
                             credits_deducted = credits,
+                            ttft_ms = ttft_ms,
+                            latency_ms = latency_ms,
                             "Streaming Anthropic messages done"
                         );
                     });

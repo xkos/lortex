@@ -36,7 +36,11 @@ pub struct UsageRecord {
     #[serde(default)]
     pub estimated_chars: u64,
 
-    /// 请求耗时（毫秒）
+    /// 首 token 耗时（毫秒），blocking 路径等于 latency_ms
+    #[serde(default)]
+    pub ttft_ms: u64,
+
+    /// 请求总耗时（毫秒）
     #[serde(default)]
     pub latency_ms: u64,
 

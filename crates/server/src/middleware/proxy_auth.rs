@@ -125,6 +125,7 @@ pub async fn deduct_credits(
     cache_write_tokens: u32,
     cache_read_tokens: u32,
     endpoint: &str,
+    ttft_ms: u64,
     latency_ms: u64,
     estimated_chars: u64,
 ) -> Result<i64, crate::store::StoreError> {
@@ -161,6 +162,7 @@ pub async fn deduct_credits(
         audio_input_seconds: 0.0,
         credits_consumed: credits_int,
         estimated_chars,
+        ttft_ms,
         latency_ms,
         created_at: chrono::Utc::now(),
     };
