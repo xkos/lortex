@@ -17,7 +17,7 @@ use lortex_core::error::ProviderError;
 use lortex_core::provider::StreamEvent;
 
 use crate::handlers::shared::{self, ProxyError};
-use crate::middleware::proxy_auth::deduct_credits;
+use crate::layer::helpers::{record_model_fields, record_usage_fields};
 use crate::models::model::ApiFormat;
 use crate::models::ApiKey;
 use crate::proto::convert::{openai_request_to_lortex, lortex_response_to_openai};
@@ -59,8 +59,28 @@ async fn chat_completions_blocking(
     client_headers: std::collections::HashMap<String, String>,
     req: ChatCompletionRequest,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let start = std::time::Instant::now();
     let estimated_chars = serde_json::to_string(&req).map(|s| s.len() as u64).unwrap_or(0);
+
+    let span = tracing::info_span!(
+        target: "lortex::usage",
+        "proxy_request",
+        api_key_id = %api_key.id,
+        api_key_name = %api_key.name,
+        endpoint = "/v1/chat/completions",
+        stream = false,
+        estimated_chars,
+        model_id = tracing::field::Empty,
+        provider_id = tracing::field::Empty,
+        vendor_model_name = tracing::field::Empty,
+        input_multiplier = tracing::field::Empty,
+        output_multiplier = tracing::field::Empty,
+        cache_write_multiplier = tracing::field::Empty,
+        cache_read_multiplier = tracing::field::Empty,
+        input_tokens = tracing::field::Empty,
+        output_tokens = tracing::field::Empty,
+        cache_write_tokens = tracing::field::Empty,
+        cache_read_tokens = tracing::field::Empty,
+    );
 
     let (lortex_resp, model) = shared::complete_with_fallback(
         &state,
@@ -77,26 +97,10 @@ async fn chat_completions_blocking(
     .await
     .map_err(to_oai_error)?;
 
-    let elapsed = start.elapsed();
+    record_model_fields(&span, &model);
 
     if let Some(usage) = &lortex_resp.usage {
-        let credits = deduct_credits(
-            &state, &api_key, &model,
-            usage.prompt_tokens, usage.completion_tokens,
-            usage.cache_creation_input_tokens, usage.cache_read_input_tokens,
-            "/v1/chat/completions", elapsed.as_millis() as u64, elapsed.as_millis() as u64, estimated_chars,
-        ).await.unwrap_or(0);
-
-        tracing::info!(
-            key_name = %api_key.name,
-            model = %model.id(),
-            input_tokens = usage.prompt_tokens,
-            output_tokens = usage.completion_tokens,
-            total_tokens = usage.total_tokens,
-            credits_deducted = credits,
-            elapsed_ms = elapsed.as_millis() as u64,
-            "Chat completion done"
-        );
+        record_usage_fields(&span, usage);
     }
 
     let oai_resp = lortex_response_to_openai(&lortex_resp, &model.id());
@@ -140,17 +144,28 @@ async fn chat_completions_stream(
     let model = model.ok_or_else(|| to_oai_error(shared::ProxyError::unavailable("All models unavailable")))?;
     let provider = provider.unwrap();
 
-    tracing::info!(
-        key_name = %api_key.name,
-        requested_model = %req.model,
-        resolved_model = %model.id(),
-        provider = %model.provider_id,
+    let span = tracing::info_span!(
+        target: "lortex::usage",
+        "proxy_request",
+        api_key_id = %api_key.id,
+        api_key_name = %api_key.name,
+        endpoint = "/v1/chat/completions",
         stream = true,
-        "Routing chat completion (streaming)"
+        estimated_chars,
+        model_id = tracing::field::Empty,
+        provider_id = tracing::field::Empty,
+        vendor_model_name = tracing::field::Empty,
+        input_multiplier = tracing::field::Empty,
+        output_multiplier = tracing::field::Empty,
+        cache_write_multiplier = tracing::field::Empty,
+        cache_read_multiplier = tracing::field::Empty,
+        input_tokens = tracing::field::Empty,
+        output_tokens = tracing::field::Empty,
+        cache_write_tokens = tracing::field::Empty,
+        cache_read_tokens = tracing::field::Empty,
+        ttft_ms = tracing::field::Empty,
     );
-
-    let mut lortex_req = openai_request_to_lortex(&req);
-    lortex_req.model = model.vendor_model_name.clone();
+    record_model_fields(&span, &model);
 
     let model_id = model.id();
     let completion_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
@@ -158,6 +173,9 @@ async fn chat_completions_stream(
 
     // Provider's complete_stream borrows self, so we pipe through a channel for 'static lifetime
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<StreamEvent, ProviderError>>(256);
+    let mut lortex_req = openai_request_to_lortex(&req);
+    lortex_req.model = model.vendor_model_name.clone();
+
     tokio::spawn(async move {
         let mut stream = provider.complete_stream(lortex_req);
         while let Some(event) = stream.next().await {
@@ -169,13 +187,15 @@ async fn chat_completions_stream(
 
     let event_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
 
-    let mut ttft_ms: u64 = 0;
+    let mut ttft_recorded = false;
 
+    // span 移入闭包，stream 结束时 span drop → UsageLayer::on_close 触发
     let sse_stream = event_stream.map(move |event: Result<StreamEvent, ProviderError>| {
         let chunk = match event {
             Ok(StreamEvent::ContentDelta { delta }) => {
-                if ttft_ms == 0 {
-                    ttft_ms = start.elapsed().as_millis() as u64;
+                if !ttft_recorded {
+                    ttft_recorded = true;
+                    span.record("ttft_ms", start.elapsed().as_millis() as u64);
                 }
                 let chunk = ChatCompletionChunk {
                     id: completion_id.clone(),
@@ -196,36 +216,8 @@ async fn chat_completions_stream(
                 serde_json::to_string(&chunk).unwrap()
             }
             Ok(StreamEvent::Done { usage, finish_reason }) => {
-                let latency_ms = start.elapsed().as_millis() as u64;
-                // Deduct credits in background if we have usage
                 if let Some(ref u) = usage {
-                    let prompt = u.prompt_tokens;
-                    let completion = u.completion_tokens;
-                    let total = u.total_tokens;
-                    let cache_creation = u.cache_creation_input_tokens;
-                    let cache_read = u.cache_read_input_tokens;
-                    let state = state.clone();
-                    let api_key = api_key.clone();
-                    let model = model.clone();
-                    let model_id_log = model_id.clone();
-                    tokio::spawn(async move {
-                        let credits = deduct_credits(
-                            &state, &api_key, &model,
-                            prompt, completion, cache_creation, cache_read,
-                            "/v1/chat/completions", ttft_ms, latency_ms, estimated_chars,
-                        ).await.unwrap_or(0);
-                        tracing::info!(
-                            key_name = %api_key.name,
-                            model = %model_id_log,
-                            input_tokens = prompt,
-                            output_tokens = completion,
-                            total_tokens = total,
-                            credits_deducted = credits,
-                            ttft_ms = ttft_ms,
-                            latency_ms = latency_ms,
-                            "Streaming chat completion done"
-                        );
-                    });
+                    record_usage_fields(&span, u);
                 }
 
                 let oai_usage = usage.map(|u| OaiUsage {

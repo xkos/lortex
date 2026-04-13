@@ -38,7 +38,7 @@ where
 {
     fn on_new_span(
         &self,
-        _attrs: &tracing::span::Attributes<'_>,
+        attrs: &tracing::span::Attributes<'_>,
         id: &tracing::span::Id,
         ctx: Context<'_, S>,
     ) {
@@ -51,11 +51,14 @@ where
             return;
         }
 
+        let mut data = SpanData::default();
+        attrs.record(&mut data);
+
         let mut extensions = span.extensions_mut();
         extensions.insert(SpanTiming {
             start: std::time::Instant::now(),
         });
-        extensions.insert(SpanData::default());
+        extensions.insert(data);
     }
 
     fn on_record(
