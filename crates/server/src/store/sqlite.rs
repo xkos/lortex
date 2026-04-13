@@ -485,6 +485,7 @@ mod tests {
             supports_batch: false,
             context_window: 128000,
             cache_enabled: true,
+            cache_strategy: "full".into(),
             input_multiplier: 2.5,
             output_multiplier: 10.0,
             cache_write_multiplier: None,

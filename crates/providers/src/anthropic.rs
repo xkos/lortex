@@ -17,6 +17,8 @@ use lortex_core::provider::{
     StreamEvent, ToolDefinition, Usage,
 };
 
+use crate::CacheStrategy;
+
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 
 /// Anthropic provider configuration.
@@ -25,6 +27,7 @@ pub struct AnthropicProvider {
     base_url: String,
     client: Client,
     extra_headers: std::collections::HashMap<String, String>,
+    cache_strategy: CacheStrategy,
 }
 
 impl AnthropicProvider {
@@ -35,6 +38,7 @@ impl AnthropicProvider {
             base_url: "https://api.anthropic.com/v1".to_string(),
             client: Client::new(),
             extra_headers: std::collections::HashMap::new(),
+            cache_strategy: CacheStrategy::None,
         }
     }
 
@@ -48,6 +52,96 @@ impl AnthropicProvider {
     pub fn with_extra_headers(mut self, headers: std::collections::HashMap<String, String>) -> Self {
         self.extra_headers = headers;
         self
+    }
+
+    /// Set cache strategy for automatic cache_control injection.
+    pub fn with_cache_strategy(mut self, strategy: CacheStrategy) -> Self {
+        self.cache_strategy = strategy;
+        self
+    }
+
+    /// 在已构建的请求 body JSON 上注入 cache_control breakpoint。
+    /// 在 body 构建完成、HTTP 发送前调用。
+    fn inject_cache_breakpoints(body: &mut Value, strategy: CacheStrategy) {
+        if strategy == CacheStrategy::None {
+            return;
+        }
+        tracing::debug!(strategy = strategy.as_str(), "Injecting cache breakpoints (Anthropic)");
+        let ephemeral = serde_json::json!({"type": "ephemeral"});
+
+        // 1. System prompt（所有非 None 策略都注入）
+        if let Some(system) = body.get_mut("system") {
+            match system.clone() {
+                Value::String(s) => {
+                    *system = serde_json::json!([{
+                        "type": "text",
+                        "text": s,
+                        "cache_control": ephemeral,
+                    }]);
+                }
+                Value::Array(_) => {
+                    if let Value::Array(blocks) = system {
+                        if let Some(last) = blocks.last_mut() {
+                            if last.get("cache_control").is_none() {
+                                last["cache_control"] = ephemeral.clone();
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if strategy == CacheStrategy::SystemOnly {
+            return;
+        }
+
+        // 2. Tools 最后一个（Standard + Full）
+        if let Some(Value::Array(tools)) = body.get_mut("tools") {
+            if let Some(last_tool) = tools.last_mut() {
+                if last_tool.get("cache_control").is_none() {
+                    last_tool["cache_control"] = ephemeral.clone();
+                }
+            }
+        }
+
+        if strategy == CacheStrategy::Standard {
+            return;
+        }
+
+        // 3. Messages 倒数第二条 user 消息的最后一个 content block（Full）
+        // 先检查 system/tools 是否存在（避免同时借用 body）
+        let has_system_or_tools =
+            body.get("system").is_some() || body.get("tools").is_some();
+
+        if let Some(Value::Array(messages)) = body.get_mut("messages") {
+            let user_indices: Vec<usize> = messages
+                .iter()
+                .enumerate()
+                .filter(|(_, m)| m.get("role").and_then(|r| r.as_str()) == Some("user"))
+                .map(|(i, _)| i)
+                .collect();
+
+            let target_idx = if user_indices.len() >= 2 {
+                Some(user_indices[user_indices.len() - 2])
+            } else if user_indices.len() == 1 && has_system_or_tools {
+                Some(user_indices[0])
+            } else {
+                Option::None
+            };
+
+            if let Some(idx) = target_idx {
+                if let Some(msg) = messages.get_mut(idx) {
+                    if let Some(Value::Array(content)) = msg.get_mut("content") {
+                        if let Some(last_block) = content.last_mut() {
+                            if last_block.get("cache_control").is_none() {
+                                last_block["cache_control"] = ephemeral;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Convert internal messages to Anthropic API format.
@@ -192,6 +286,8 @@ impl Provider for AnthropicProvider {
             body["tools"] = Value::Array(Self::convert_tools(&request.tools));
         }
 
+        Self::inject_cache_breakpoints(&mut body, self.cache_strategy);
+
         let mut req = self
             .client
             .post(&url)
@@ -335,6 +431,8 @@ impl Provider for AnthropicProvider {
         if !request.tools.is_empty() {
             body["tools"] = Value::Array(Self::convert_tools(&request.tools));
         }
+
+        Self::inject_cache_breakpoints(&mut body, self.cache_strategy);
 
         let client = self.client.clone();
         let extra_headers = self.extra_headers.clone();
@@ -486,5 +584,137 @@ impl Provider for AnthropicProvider {
             embeddings: false, // Anthropic doesn't offer embeddings
             structured_output: true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn inject_none_is_noop() {
+        let mut body = json!({
+            "model": "claude-sonnet-4-20250514",
+            "system": "You are helpful",
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "Hi"}]}],
+            "tools": [{"name": "search", "input_schema": {}}],
+        });
+        let original = body.clone();
+        AnthropicProvider::inject_cache_breakpoints(&mut body, CacheStrategy::None);
+        assert_eq!(body, original);
+    }
+
+    #[test]
+    fn inject_system_only_string() {
+        let mut body = json!({
+            "model": "claude-sonnet-4-20250514",
+            "system": "You are helpful",
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "Hi"}]}],
+        });
+        AnthropicProvider::inject_cache_breakpoints(&mut body, CacheStrategy::SystemOnly);
+        let system = body.get("system").unwrap();
+        assert!(system.is_array());
+        let blocks = system.as_array().unwrap();
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0]["cache_control"]["type"], "ephemeral");
+        assert_eq!(blocks[0]["text"], "You are helpful");
+        // Messages should NOT have cache_control
+        let msg = &body["messages"][0]["content"][0];
+        assert!(msg.get("cache_control").is_none());
+    }
+
+    #[test]
+    fn inject_system_only_array() {
+        let mut body = json!({
+            "system": [
+                {"type": "text", "text": "Part 1"},
+                {"type": "text", "text": "Part 2"},
+            ],
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "Hi"}]}],
+        });
+        AnthropicProvider::inject_cache_breakpoints(&mut body, CacheStrategy::SystemOnly);
+        let blocks = body["system"].as_array().unwrap();
+        assert!(blocks[0].get("cache_control").is_none());
+        assert_eq!(blocks[1]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn inject_standard_tags_tools() {
+        let mut body = json!({
+            "system": "sys",
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "Hi"}]}],
+            "tools": [
+                {"name": "tool_a", "input_schema": {}},
+                {"name": "tool_b", "input_schema": {}},
+            ],
+        });
+        AnthropicProvider::inject_cache_breakpoints(&mut body, CacheStrategy::Standard);
+        // System tagged
+        assert!(body["system"][0]["cache_control"].is_object());
+        // First tool NOT tagged
+        assert!(body["tools"][0].get("cache_control").is_none());
+        // Last tool tagged
+        assert_eq!(body["tools"][1]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn inject_standard_no_tools_no_crash() {
+        let mut body = json!({
+            "system": "sys",
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "Hi"}]}],
+        });
+        AnthropicProvider::inject_cache_breakpoints(&mut body, CacheStrategy::Standard);
+        // Only system tagged, no crash
+        assert!(body["system"][0]["cache_control"].is_object());
+    }
+
+    #[test]
+    fn inject_full_tags_penultimate_user() {
+        let mut body = json!({
+            "system": "sys",
+            "messages": [
+                {"role": "user", "content": [{"type": "text", "text": "Turn 1"}]},
+                {"role": "assistant", "content": [{"type": "text", "text": "Reply 1"}]},
+                {"role": "user", "content": [{"type": "text", "text": "Turn 2"}]},
+                {"role": "assistant", "content": [{"type": "text", "text": "Reply 2"}]},
+                {"role": "user", "content": [{"type": "text", "text": "Turn 3"}]},
+            ],
+        });
+        AnthropicProvider::inject_cache_breakpoints(&mut body, CacheStrategy::Full);
+        // System tagged
+        assert!(body["system"][0]["cache_control"].is_object());
+        // Penultimate user (Turn 2, index 2) tagged
+        assert_eq!(body["messages"][2]["content"][0]["cache_control"]["type"], "ephemeral");
+        // Last user (Turn 3) NOT tagged
+        assert!(body["messages"][4]["content"][0].get("cache_control").is_none());
+        // First user NOT tagged
+        assert!(body["messages"][0]["content"][0].get("cache_control").is_none());
+    }
+
+    #[test]
+    fn inject_full_single_user_with_system() {
+        let mut body = json!({
+            "system": "sys",
+            "messages": [
+                {"role": "user", "content": [{"type": "text", "text": "Only turn"}]},
+            ],
+        });
+        AnthropicProvider::inject_cache_breakpoints(&mut body, CacheStrategy::Full);
+        // Single user with system → tag it
+        assert_eq!(body["messages"][0]["content"][0]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn inject_preserves_existing_cache_control() {
+        let mut body = json!({
+            "system": [{"type": "text", "text": "sys", "cache_control": {"type": "custom"}}],
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "Hi"}]}],
+            "tools": [{"name": "t", "input_schema": {}, "cache_control": {"type": "custom"}}],
+        });
+        AnthropicProvider::inject_cache_breakpoints(&mut body, CacheStrategy::Standard);
+        // Existing cache_control preserved, not overwritten
+        assert_eq!(body["system"][0]["cache_control"]["type"], "custom");
+        assert_eq!(body["tools"][0]["cache_control"]["type"], "custom");
     }
 }

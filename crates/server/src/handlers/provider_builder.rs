@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use lortex_core::provider::Provider;
+use lortex_providers::CacheStrategy;
 
 use crate::models::model::ApiFormat;
 use crate::models::Model;
@@ -53,6 +54,13 @@ pub fn build_llm_provider(
 ) -> Arc<dyn Provider> {
     let headers = merge_headers(&model.extra_headers, client_headers);
 
+    // 读取缓存注入策略
+    let cache_strategy = if model.cache_enabled {
+        CacheStrategy::from_str(&model.cache_strategy)
+    } else {
+        CacheStrategy::None
+    };
+
     // 选择实际使用的 API 格式
     let actual_format = if model.api_formats.contains(preferred_format) {
         preferred_format.clone()
@@ -67,14 +75,16 @@ pub fn build_llm_provider(
             Arc::new(
                 lortex_providers::openai::OpenAIProvider::new(&provider_config.api_key)
                     .with_base_url(&provider_config.base_url)
-                    .with_extra_headers(headers),
+                    .with_extra_headers(headers)
+                    .with_cache_strategy(cache_strategy),
             )
         }
         ApiFormat::Anthropic => {
             Arc::new(
                 lortex_providers::anthropic::AnthropicProvider::new(&provider_config.api_key)
                     .with_base_url(&provider_config.base_url)
-                    .with_extra_headers(headers),
+                    .with_extra_headers(headers)
+                    .with_cache_strategy(cache_strategy),
             )
         }
     }

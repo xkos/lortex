@@ -4,25 +4,37 @@
 
     <!-- Summary Cards -->
     <el-row :gutter="16" style="margin-bottom: 20px;">
-      <el-col :span="6">
+      <el-col :span="4">
         <el-card shadow="hover">
           <div class="stat-label">Total Requests</div>
           <div class="stat-value">{{ summary.total_requests?.toLocaleString() || 0 }}</div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="4">
         <el-card shadow="hover">
           <div class="stat-label">Input Tokens</div>
           <div class="stat-value">{{ summary.total_input_tokens?.toLocaleString() || 0 }}</div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="4">
         <el-card shadow="hover">
           <div class="stat-label">Output Tokens</div>
           <div class="stat-value">{{ summary.total_output_tokens?.toLocaleString() || 0 }}</div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :span="4">
+        <el-card shadow="hover">
+          <div class="stat-label">Cache Write</div>
+          <div class="stat-value">{{ summary.total_cache_write_tokens?.toLocaleString() || 0 }}</div>
+        </el-card>
+      </el-col>
+      <el-col :span="4">
+        <el-card shadow="hover">
+          <div class="stat-label">Cache Read</div>
+          <div class="stat-value">{{ summary.total_cache_read_tokens?.toLocaleString() || 0 }}</div>
+        </el-card>
+      </el-col>
+      <el-col :span="4">
         <el-card shadow="hover">
           <div class="stat-label">Total Credits</div>
           <div class="stat-value">{{ summary.total_credits?.toLocaleString() || 0 }}</div>
@@ -75,6 +87,16 @@
       <el-table-column prop="output_tokens" label="Output" width="100" align="right">
         <template #default="{ row }">
           {{ row.output_tokens.toLocaleString() }}
+        </template>
+      </el-table-column>
+      <el-table-column prop="cache_write_tokens" label="Cache W" width="100" align="right">
+        <template #default="{ row }">
+          {{ row.cache_write_tokens ? row.cache_write_tokens.toLocaleString() : '-' }}
+        </template>
+      </el-table-column>
+      <el-table-column prop="cache_read_tokens" label="Cache R" width="100" align="right">
+        <template #default="{ row }">
+          {{ row.cache_read_tokens ? row.cache_read_tokens.toLocaleString() : '-' }}
         </template>
       </el-table-column>
       <el-table-column prop="credits_consumed" label="Credits" width="100" align="right">

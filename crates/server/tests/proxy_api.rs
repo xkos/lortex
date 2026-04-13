@@ -251,6 +251,7 @@ async fn chat_completions_model_not_in_group() {
         supports_batch: false,
         context_window: 128000,
         cache_enabled: true,
+        cache_strategy: "full".into(),
         input_multiplier: 0.15,
         output_multiplier: 0.6,
         cache_write_multiplier: None,
