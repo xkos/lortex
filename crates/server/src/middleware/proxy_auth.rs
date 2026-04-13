@@ -8,7 +8,6 @@ use axum::{
     Json,
 };
 
-use crate::models::ApiKey;
 use crate::proto::openai::ErrorResponse;
 use crate::state::AppState;
 
@@ -115,68 +114,34 @@ fn extract_api_key(request: &Request) -> Option<String> {
     None
 }
 
-/// 请求完成后扣减 credit 并写入用量记录
-pub async fn deduct_credits(
-    state: &AppState,
-    api_key: &ApiKey,
-    model: &crate::models::Model,
+/// 根据 token 用量和模型乘数计算 credit 消耗
+pub fn compute_credits(
     input_tokens: u32,
     output_tokens: u32,
     cache_write_tokens: u32,
     cache_read_tokens: u32,
-    endpoint: &str,
-    ttft_ms: u64,
-    latency_ms: u64,
-    estimated_chars: u64,
-) -> Result<i64, crate::store::StoreError> {
+    input_multiplier: f64,
+    output_multiplier: f64,
+    cache_write_multiplier: Option<f64>,
+    cache_read_multiplier: Option<f64>,
+) -> i64 {
     let mut credits: f64 = 0.0;
-
-    // 文本 token 计费
-    credits += (input_tokens as f64 / 1000.0) * model.input_multiplier;
-    credits += (output_tokens as f64 / 1000.0) * model.output_multiplier;
-
-    // 缓存 token 计费
-    if let Some(cw) = model.cache_write_multiplier {
+    credits += (input_tokens as f64 / 1000.0) * input_multiplier;
+    credits += (output_tokens as f64 / 1000.0) * output_multiplier;
+    if let Some(cw) = cache_write_multiplier {
         credits += (cache_write_tokens as f64 / 1000.0) * cw;
     }
-    if let Some(cr) = model.cache_read_multiplier {
+    if let Some(cr) = cache_read_multiplier {
         credits += (cache_read_tokens as f64 / 1000.0) * cr;
     }
-
-    let credits_int = credits.ceil() as i64;
-    state.store.add_credits_used(&api_key.id, credits_int).await?;
-
-    // 写入用量记录
-    let record = crate::models::UsageRecord {
-        id: uuid::Uuid::new_v4().to_string(),
-        api_key_id: api_key.id.clone(),
-        api_key_name: api_key.name.clone(),
-        provider_id: model.provider_id.clone(),
-        vendor_model_name: model.vendor_model_name.clone(),
-        request_endpoint: endpoint.to_string(),
-        input_tokens,
-        cache_write_tokens,
-        cache_read_tokens,
-        output_tokens,
-        image_input_units: 0,
-        audio_input_seconds: 0.0,
-        credits_consumed: credits_int,
-        estimated_chars,
-        ttft_ms,
-        latency_ms,
-        created_at: chrono::Utc::now(),
-    };
-    if let Err(e) = state.store.insert_usage(&record).await {
-        tracing::warn!(error = %e, "Failed to write usage record");
-    }
-
-    Ok(credits_int)
+    credits.ceil() as i64
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use axum::body::Body;
+    use crate::models::ApiKey;
     use crate::models::model::{ApiFormat, Model, ModelType};
     use std::collections::HashMap;
 
