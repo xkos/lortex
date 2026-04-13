@@ -3,8 +3,11 @@
 use std::sync::Arc;
 
 use clap::Parser;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
+use lortex_server::layer::UsageLayer;
 use lortex_server::{app_router, AppState, ServerConfig};
 use lortex_server::store::SqliteStore;
 
@@ -39,15 +42,25 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // 初始化日志
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info,lortex_server=debug")),
-        )
-        .init();
-
     let cli = Cli::parse();
+
+    // 存储初始化必须在 tracing 之前，UsageLayer 需要 store
+    let store = SqliteStore::new(&cli.db).await?;
+    store.migrate().await?;
+
+    let store: Arc<dyn lortex_server::store::ProxyStore> = Arc::new(store);
+
+    // 初始化 subscriber 栈：env-filter + fmt + UsageLayer
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,lortex_server=debug"));
+    let fmt_layer = tracing_subscriber::fmt::layer();
+    let usage_layer = UsageLayer::new(store.clone());
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(fmt_layer)
+        .with(usage_layer)
+        .init();
 
     tracing::info!(
         host = %cli.host,
@@ -57,13 +70,9 @@ async fn main() -> anyhow::Result<()> {
         db = %cli.db,
         "Starting Lortex Proxy"
     );
-
-    // 初始化存储
-    let store = SqliteStore::new(&cli.db).await?;
-    store.migrate().await?;
     tracing::info!("Database initialized: {}", cli.db);
 
-    let state = AppState::new(Arc::new(store));
+    let state = AppState::new(store);
 
     let config = ServerConfig {
         port: cli.port,

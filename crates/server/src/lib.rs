@@ -9,6 +9,7 @@
 pub mod circuit_breaker;
 pub mod config;
 pub mod handlers;
+pub mod layer;
 pub mod middleware;
 pub mod models;
 pub mod proto;

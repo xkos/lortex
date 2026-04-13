@@ -115,8 +115,31 @@ fn extract_api_key(request: &Request) -> Option<String> {
     None
 }
 
+/// 根据 token 用量和模型乘数计算 credit 消耗
+pub fn compute_credits(
+    input_tokens: u32,
+    output_tokens: u32,
+    cache_write_tokens: u32,
+    cache_read_tokens: u32,
+    input_multiplier: f64,
+    output_multiplier: f64,
+    cache_write_multiplier: Option<f64>,
+    cache_read_multiplier: Option<f64>,
+) -> i64 {
+    let mut credits: f64 = 0.0;
+    credits += (input_tokens as f64 / 1000.0) * input_multiplier;
+    credits += (output_tokens as f64 / 1000.0) * output_multiplier;
+    if let Some(cw) = cache_write_multiplier {
+        credits += (cache_write_tokens as f64 / 1000.0) * cw;
+    }
+    if let Some(cr) = cache_read_multiplier {
+        credits += (cache_read_tokens as f64 / 1000.0) * cr;
+    }
+    credits.ceil() as i64
+}
+
 /// 请求完成后扣减 credit 并写入用量记录
-pub async fn deduct_credits(
+pub(crate) async fn deduct_credits(
     state: &AppState,
     api_key: &ApiKey,
     model: &crate::models::Model,
@@ -129,21 +152,12 @@ pub async fn deduct_credits(
     latency_ms: u64,
     estimated_chars: u64,
 ) -> Result<i64, crate::store::StoreError> {
-    let mut credits: f64 = 0.0;
-
-    // 文本 token 计费
-    credits += (input_tokens as f64 / 1000.0) * model.input_multiplier;
-    credits += (output_tokens as f64 / 1000.0) * model.output_multiplier;
-
-    // 缓存 token 计费
-    if let Some(cw) = model.cache_write_multiplier {
-        credits += (cache_write_tokens as f64 / 1000.0) * cw;
-    }
-    if let Some(cr) = model.cache_read_multiplier {
-        credits += (cache_read_tokens as f64 / 1000.0) * cr;
-    }
-
-    let credits_int = credits.ceil() as i64;
+    let credits_int = compute_credits(
+        input_tokens, output_tokens,
+        cache_write_tokens, cache_read_tokens,
+        model.input_multiplier, model.output_multiplier,
+        model.cache_write_multiplier, model.cache_read_multiplier,
+    );
     state.store.add_credits_used(&api_key.id, credits_int).await?;
 
     // 写入用量记录
