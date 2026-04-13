@@ -1,16 +1,35 @@
-//! Shared proxy handler logic — resolve_model, build_provider, map errors
+//! Shared proxy handler logic — resolve_model, build_provider, map errors, fallback
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
 
 use lortex_core::error::ProviderError;
-use lortex_core::provider::Provider;
+use lortex_core::provider::{CompletionRequest, CompletionResponse, Provider};
 
 use crate::handlers::provider_builder::build_llm_provider;
 use crate::models::model::ApiFormat;
 use crate::models::{ApiKey, Model};
 use crate::state::AppState;
+
+/// 从客户端请求中提取需要透传给上游 provider 的 headers
+pub fn extract_passthrough_headers(headers: &axum::http::HeaderMap) -> HashMap<String, String> {
+    // 透传的 header 前缀/名称列表
+    const PASSTHROUGH_HEADERS: &[&str] = &[
+        "anthropic-beta",
+    ];
+
+    let mut result = HashMap::new();
+    for name in PASSTHROUGH_HEADERS {
+        if let Some(value) = headers.get(*name) {
+            if let Ok(v) = value.to_str() {
+                result.insert(name.to_string(), v.to_string());
+            }
+        }
+    }
+    result
+}
 
 /// Generic proxy error before converting to format-specific responses.
 #[derive(Debug)]
@@ -73,6 +92,16 @@ pub async fn build_provider(
     model: &Model,
     preferred_format: &ApiFormat,
 ) -> Result<Arc<dyn Provider>, ProxyError> {
+    build_provider_with_headers(state, model, preferred_format, &HashMap::new()).await
+}
+
+/// 根据 Provider 配置构建 lortex Provider 实例，合并客户端 headers
+pub async fn build_provider_with_headers(
+    state: &AppState,
+    model: &Model,
+    preferred_format: &ApiFormat,
+    client_headers: &HashMap<String, String>,
+) -> Result<Arc<dyn Provider>, ProxyError> {
     let provider_config = state
         .store
         .get_provider(&model.provider_id)
@@ -89,7 +118,7 @@ pub async fn build_provider(
         )));
     }
 
-    Ok(build_llm_provider(&provider_config, model, preferred_format))
+    Ok(build_llm_provider(&provider_config, model, preferred_format, client_headers))
 }
 
 /// Map upstream provider error to ProxyError
@@ -103,4 +132,111 @@ pub fn map_provider_error(e: ProviderError) -> ProxyError {
         _ => (StatusCode::BAD_GATEWAY, e.to_string()),
     };
     ProxyError { status, message: msg }
+}
+
+/// 判断 ProviderError 是否可以 fallback（网络/服务器错误可以，认证/请求错误不行）
+fn is_retriable(e: &ProviderError) -> bool {
+    match e {
+        ProviderError::Network(_) | ProviderError::RateLimited { .. } => true,
+        ProviderError::Api { status, .. } => *status >= 500,
+        _ => false,
+    }
+}
+
+/// 解析主模型 + fallback 模型列表（按优先级），过滤不可用的 provider
+pub async fn resolve_models_with_fallback(
+    state: &AppState,
+    api_key: &ApiKey,
+    model_name: &str,
+) -> Result<Vec<Model>, ProxyError> {
+    let primary = resolve_model(state, api_key, model_name).await?;
+    let mut models = vec![primary];
+
+    for fallback_name in &api_key.fallback_models {
+        if let Ok(m) = resolve_model(state, api_key, fallback_name).await {
+            // 避免重复
+            if !models.iter().any(|existing| existing.id() == m.id()) {
+                models.push(m);
+            }
+        }
+    }
+
+    Ok(models)
+}
+
+/// Non-streaming 带 fallback 的完整调用链
+///
+/// 依次尝试主模型和 fallback 模型，跳过熔断的 provider，
+/// 成功/失败记录到 circuit breaker。
+pub async fn complete_with_fallback(
+    state: &AppState,
+    api_key: &ApiKey,
+    model_name: &str,
+    preferred_format: &ApiFormat,
+    client_headers: &HashMap<String, String>,
+    mut build_request: impl FnMut(&Model) -> CompletionRequest,
+) -> Result<(CompletionResponse, Model), ProxyError> {
+    let models = resolve_models_with_fallback(state, api_key, model_name).await?;
+    let mut last_error = None;
+
+    for model in &models {
+        // 检查熔断器
+        let available = state
+            .circuit_breaker
+            .is_available(&model.provider_id)
+            .await
+            .unwrap_or(true); // store 错误时不阻塞
+        if !available {
+            tracing::info!(
+                provider = %model.provider_id,
+                model = %model.id(),
+                "Skipping circuit-broken provider"
+            );
+            continue;
+        }
+
+        // 构建 provider
+        let provider = match build_provider_with_headers(state, model, preferred_format, client_headers).await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(
+                    model = %model.id(),
+                    error = %e.message,
+                    "Failed to build provider, trying next"
+                );
+                last_error = Some(e);
+                continue;
+            }
+        };
+
+        // 发起请求
+        let request = build_request(model);
+        match provider.complete(request).await {
+            Ok(resp) => {
+                // 记录成功
+                let _ = state.circuit_breaker.record_success(&model.provider_id).await;
+                return Ok((resp, model.clone()));
+            }
+            Err(e) => {
+                tracing::warn!(
+                    model = %model.id(),
+                    provider = %model.provider_id,
+                    error = %e,
+                    "LLM call failed, checking fallback"
+                );
+                // 记录失败
+                let _ = state.circuit_breaker.record_failure(&model.provider_id).await;
+
+                if is_retriable(&e) && models.len() > 1 {
+                    last_error = Some(map_provider_error(e));
+                    continue;
+                }
+                return Err(map_provider_error(e));
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        ProxyError::unavailable("All models unavailable (circuit-broken or failed)")
+    }))
 }

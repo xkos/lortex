@@ -17,6 +17,8 @@ use lortex_core::provider::{
     StreamEvent, ToolDefinition, Usage,
 };
 
+use crate::CacheStrategy;
+
 /// OpenAI provider configuration.
 pub struct OpenAIProvider {
     api_key: String,
@@ -24,6 +26,7 @@ pub struct OpenAIProvider {
     client: Client,
     organization: Option<String>,
     extra_headers: std::collections::HashMap<String, String>,
+    cache_strategy: CacheStrategy,
 }
 
 impl OpenAIProvider {
@@ -35,6 +38,7 @@ impl OpenAIProvider {
             client: Client::new(),
             organization: None,
             extra_headers: std::collections::HashMap::new(),
+            cache_strategy: CacheStrategy::None,
         }
     }
 
@@ -54,6 +58,110 @@ impl OpenAIProvider {
     pub fn with_extra_headers(mut self, headers: std::collections::HashMap<String, String>) -> Self {
         self.extra_headers = headers;
         self
+    }
+
+    /// Set cache strategy for automatic cache_control injection.
+    pub fn with_cache_strategy(mut self, strategy: CacheStrategy) -> Self {
+        self.cache_strategy = strategy;
+        self
+    }
+
+    /// 在已构建的请求 body JSON 上注入 cache_control breakpoint。
+    fn inject_cache_breakpoints(body: &mut Value, strategy: CacheStrategy) {
+        if strategy == CacheStrategy::None {
+            return;
+        }
+        tracing::debug!(strategy = strategy.as_str(), "Injecting cache breakpoints (OpenAI)");
+        let ephemeral = serde_json::json!({"type": "ephemeral"});
+
+        // 1. System message（所有非 None 策略）：找最后一条 system role，content 从 string 转 blocks
+        if let Some(Value::Array(messages)) = body.get_mut("messages") {
+            if let Some(sys_idx) = messages
+                .iter()
+                .rposition(|m| m.get("role").and_then(|r| r.as_str()) == Some("system"))
+            {
+                let sys_msg = &mut messages[sys_idx];
+                if let Some(Value::String(text)) = sys_msg.get("content").cloned() {
+                    sys_msg["content"] = serde_json::json!([{
+                        "type": "text",
+                        "text": text,
+                        "cache_control": ephemeral,
+                    }]);
+                } else if let Some(Value::Array(blocks)) = sys_msg.get_mut("content") {
+                    if let Some(last) = blocks.last_mut() {
+                        if last.get("cache_control").is_none() {
+                            last["cache_control"] = ephemeral.clone();
+                        }
+                    }
+                }
+            }
+        }
+
+        if strategy == CacheStrategy::SystemOnly {
+            return;
+        }
+
+        // 2. Tools 最后一个（Standard + Full）
+        if let Some(Value::Array(tools)) = body.get_mut("tools") {
+            if let Some(last_tool) = tools.last_mut() {
+                if last_tool.get("cache_control").is_none() {
+                    last_tool["cache_control"] = ephemeral.clone();
+                }
+            }
+        }
+
+        if strategy == CacheStrategy::Standard {
+            return;
+        }
+
+        // 3. Messages 倒数第二条 user 消息（Full）
+        // 先检查 system/tools 存在性
+        let has_system = body
+            .get("messages")
+            .and_then(|m| m.as_array())
+            .map(|msgs| msgs.iter().any(|m| m.get("role").and_then(|r| r.as_str()) == Some("system")))
+            .unwrap_or(false);
+        let has_tools = body.get("tools").is_some();
+
+        if let Some(Value::Array(messages)) = body.get_mut("messages") {
+            let user_indices: Vec<usize> = messages
+                .iter()
+                .enumerate()
+                .filter(|(_, m)| m.get("role").and_then(|r| r.as_str()) == Some("user"))
+                .map(|(i, _)| i)
+                .collect();
+
+            let target_idx = if user_indices.len() >= 2 {
+                Some(user_indices[user_indices.len() - 2])
+            } else if user_indices.len() == 1 && (has_system || has_tools) {
+                Some(user_indices[0])
+            } else {
+                Option::None
+            };
+
+            if let Some(idx) = target_idx {
+                let msg = &mut messages[idx];
+                match msg.get("content").cloned() {
+                    Some(Value::String(text)) => {
+                        msg["content"] = serde_json::json!([{
+                            "type": "text",
+                            "text": text,
+                            "cache_control": ephemeral,
+                        }]);
+                    }
+                    Some(Value::Array(_)) => {
+                        if let Some(Value::Array(blocks)) = msg.get_mut("content") {
+                            if let Some(last) = blocks.last_mut() {
+                                if last.get("cache_control").is_none() {
+                                    last["cache_control"] = ephemeral;
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
 
     /// Convert internal messages to OpenAI API format.
@@ -270,6 +378,8 @@ impl Provider for OpenAIProvider {
             );
         }
 
+        Self::inject_cache_breakpoints(&mut body, self.cache_strategy);
+
         let mut req = self
             .client
             .post(&url)
@@ -452,6 +562,8 @@ impl Provider for OpenAIProvider {
             body["tools"] = Value::Array(Self::convert_tools(&request.tools));
         }
 
+        Self::inject_cache_breakpoints(&mut body, self.cache_strategy);
+
         let client = self.client.clone();
 
         Box::pin(async_stream::try_stream! {
@@ -481,6 +593,13 @@ impl Provider for OpenAIProvider {
 
             let mut byte_stream = resp.bytes_stream();
             let mut buffer = String::new();
+            // OpenAI sends finish_reason and usage in separate chunks:
+            //   chunk N:   finish_reason: "stop"
+            //   chunk N+1: usage: { prompt_tokens, completion_tokens, ... }
+            //   [DONE]
+            // We defer emitting Done until we have both (or hit [DONE]).
+            let mut pending_finish: Option<FinishReason> = None;
+            let mut usage_data: Option<Usage> = None;
 
             use futures::StreamExt;
             while let Some(chunk) = byte_stream.next().await {
@@ -502,6 +621,13 @@ impl Provider for OpenAIProvider {
                     };
 
                     if data == "[DONE]" {
+                        // Flush pending Done if finish_reason was seen
+                        if let Some(fr) = pending_finish.take() {
+                            yield StreamEvent::Done {
+                                usage: usage_data.take(),
+                                finish_reason: Some(fr),
+                            };
+                        }
                         return;
                     }
 
@@ -570,6 +696,21 @@ impl Provider for OpenAIProvider {
                         }
                     }
 
+                    // Parse usage (may arrive in finish chunk or a separate chunk)
+                    if let Some(u) = chunk_json.get("usage") {
+                        let cached = u.get("prompt_tokens_details")
+                            .and_then(|d| d.get("cached_tokens"))
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as u32;
+                        usage_data = Some(Usage {
+                            prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                            completion_tokens: u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                            total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                            cache_creation_input_tokens: 0,
+                            cache_read_input_tokens: cached,
+                        });
+                    }
+
                     // Parse finish reason
                     if let Some(finish) = chunk_json
                         .get("choices")
@@ -577,32 +718,20 @@ impl Provider for OpenAIProvider {
                         .and_then(|c| c.get("finish_reason"))
                         .and_then(|f| f.as_str())
                     {
-                        let finish_reason = match finish {
+                        pending_finish = Some(match finish {
                             "stop" => FinishReason::Stop,
                             "tool_calls" => FinishReason::ToolCalls,
                             "length" => FinishReason::Length,
                             "content_filter" => FinishReason::ContentFilter,
                             _ => FinishReason::Stop,
-                        };
-
-                        // Check for usage in the same or subsequent chunk
-                        let usage = chunk_json.get("usage").map(|u| {
-                            let cached = u.get("prompt_tokens_details")
-                                .and_then(|d| d.get("cached_tokens"))
-                                .and_then(|v| v.as_u64())
-                                .unwrap_or(0) as u32;
-                            Usage {
-                                prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                                completion_tokens: u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                                total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                                cache_creation_input_tokens: 0,
-                                cache_read_input_tokens: cached,
-                            }
                         });
+                    }
 
+                    // Emit Done when we have both finish_reason and usage
+                    if pending_finish.is_some() && usage_data.is_some() {
                         yield StreamEvent::Done {
-                            usage,
-                            finish_reason: Some(finish_reason),
+                            usage: usage_data.take(),
+                            finish_reason: pending_finish.take(),
                         };
                     }
                 }
@@ -618,5 +747,117 @@ impl Provider for OpenAIProvider {
             embeddings: true,
             structured_output: true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn inject_none_is_noop() {
+        let mut body = json!({
+            "model": "gpt-4",
+            "messages": [
+                {"role": "system", "content": "You are helpful"},
+                {"role": "user", "content": "Hi"},
+            ],
+            "tools": [{"type": "function", "function": {"name": "search"}}],
+        });
+        let original = body.clone();
+        OpenAIProvider::inject_cache_breakpoints(&mut body, CacheStrategy::None);
+        assert_eq!(body, original);
+    }
+
+    #[test]
+    fn inject_system_only_string_content() {
+        let mut body = json!({
+            "messages": [
+                {"role": "system", "content": "You are helpful"},
+                {"role": "user", "content": "Hi"},
+            ],
+        });
+        OpenAIProvider::inject_cache_breakpoints(&mut body, CacheStrategy::SystemOnly);
+        let sys = &body["messages"][0]["content"];
+        assert!(sys.is_array());
+        assert_eq!(sys[0]["cache_control"]["type"], "ephemeral");
+        assert_eq!(sys[0]["text"], "You are helpful");
+        // User message NOT tagged
+        let user = &body["messages"][1];
+        assert!(user["content"].is_string());
+    }
+
+    #[test]
+    fn inject_standard_tags_tools() {
+        let mut body = json!({
+            "messages": [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "Hi"},
+            ],
+            "tools": [
+                {"type": "function", "function": {"name": "a"}},
+                {"type": "function", "function": {"name": "b"}},
+            ],
+        });
+        OpenAIProvider::inject_cache_breakpoints(&mut body, CacheStrategy::Standard);
+        // System tagged
+        assert!(body["messages"][0]["content"][0]["cache_control"].is_object());
+        // First tool NOT tagged
+        assert!(body["tools"][0].get("cache_control").is_none());
+        // Last tool tagged
+        assert_eq!(body["tools"][1]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn inject_full_tags_penultimate_user_string() {
+        let mut body = json!({
+            "messages": [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "Turn 1"},
+                {"role": "assistant", "content": "Reply 1"},
+                {"role": "user", "content": "Turn 2"},
+            ],
+        });
+        OpenAIProvider::inject_cache_breakpoints(&mut body, CacheStrategy::Full);
+        // Penultimate user (Turn 1) converted to blocks with cache_control
+        let turn1 = &body["messages"][1]["content"];
+        assert!(turn1.is_array());
+        assert_eq!(turn1[0]["cache_control"]["type"], "ephemeral");
+        // Last user (Turn 2) NOT tagged
+        assert!(body["messages"][3]["content"].is_string());
+    }
+
+    #[test]
+    fn inject_full_tags_penultimate_user_blocks() {
+        let mut body = json!({
+            "messages": [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": [
+                    {"type": "text", "text": "Part 1"},
+                    {"type": "text", "text": "Part 2"},
+                ]},
+                {"role": "assistant", "content": "Reply"},
+                {"role": "user", "content": "Turn 2"},
+            ],
+        });
+        OpenAIProvider::inject_cache_breakpoints(&mut body, CacheStrategy::Full);
+        // Last block of penultimate user message tagged
+        assert!(body["messages"][1]["content"][0].get("cache_control").is_none());
+        assert_eq!(body["messages"][1]["content"][1]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn inject_preserves_existing_cache_control() {
+        let mut body = json!({
+            "messages": [
+                {"role": "system", "content": [{"type": "text", "text": "sys", "cache_control": {"type": "custom"}}]},
+                {"role": "user", "content": "Hi"},
+            ],
+            "tools": [{"type": "function", "function": {"name": "t"}, "cache_control": {"type": "custom"}}],
+        });
+        OpenAIProvider::inject_cache_breakpoints(&mut body, CacheStrategy::Standard);
+        assert_eq!(body["messages"][0]["content"][0]["cache_control"]["type"], "custom");
+        assert_eq!(body["tools"][0]["cache_control"]["type"], "custom");
     }
 }

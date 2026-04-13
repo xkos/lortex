@@ -123,6 +123,22 @@
         <el-form-item label="Cache Enabled">
           <el-switch v-model="form.cache_enabled" />
         </el-form-item>
+        <el-form-item label="Cache Strategy">
+          <el-select v-model="form.cache_strategy" :disabled="!form.cache_enabled" style="width: 200px;">
+            <el-option label="None" value="none" />
+            <el-option label="System Only" value="system_only" />
+            <el-option label="Standard" value="standard" />
+            <el-option label="Full (Recommended)" value="full" />
+          </el-select>
+          <el-tooltip placement="top">
+            <template #content>
+              Auto-injects cache_control breakpoints into upstream requests.<br/>
+              Only effective when the backend model supports Anthropic prompt caching.<br/>
+              Non-Anthropic models will ignore the extra fields with no side effects.
+            </template>
+            <el-icon style="margin-left: 6px; cursor: help;"><QuestionFilled /></el-icon>
+          </el-tooltip>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">Cancel</el-button>
@@ -162,6 +178,7 @@ const emptyForm = () => ({
   supports_batch: false,
   context_window: 128000,
   cache_enabled: true,
+  cache_strategy: 'full',
   input_multiplier: 1.0,
   output_multiplier: 1.0,
   cache_write_multiplier: 0,

@@ -12,8 +12,9 @@ pub struct MessagesRequest {
     pub model: String,
     pub messages: Vec<AnthropicMessage>,
     pub max_tokens: u32,
+    /// System prompt — 支持 string 或 content block 数组（含 cache_control）
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system: Option<String>,
+    pub system: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     #[serde(default)]
@@ -46,14 +47,24 @@ pub enum AnthropicContent {
 #[serde(tag = "type")]
 pub enum ContentBlock {
     #[serde(rename = "text")]
-    Text { text: String },
+    Text {
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<Value>,
+    },
     #[serde(rename = "image")]
-    Image { source: ImageSource },
+    Image {
+        source: ImageSource,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<Value>,
+    },
     #[serde(rename = "tool_use")]
     ToolUse {
         id: String,
         name: String,
         input: Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<Value>,
     },
     #[serde(rename = "tool_result")]
     ToolResult {
@@ -61,6 +72,8 @@ pub enum ContentBlock {
         content: Value,
         #[serde(default)]
         is_error: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<Value>,
     },
 }
 
@@ -269,7 +282,7 @@ mod tests {
             "messages": [{"role": "user", "content": "Hi"}]
         });
         let req: MessagesRequest = serde_json::from_value(json).unwrap();
-        assert_eq!(req.system.as_deref(), Some("You are helpful"));
+        assert_eq!(req.system.as_ref().and_then(|v| v.as_str()), Some("You are helpful"));
     }
 
     #[test]
@@ -280,7 +293,7 @@ mod tests {
             AnthropicContent::Blocks(blocks) => {
                 assert_eq!(blocks.len(), 1);
                 match &blocks[0] {
-                    ContentBlock::Text { text } => assert_eq!(text, "hello"),
+                    ContentBlock::Text { text, .. } => assert_eq!(text, "hello"),
                     _ => panic!("expected text block"),
                 }
             }
@@ -308,7 +321,7 @@ mod tests {
         });
         let block: ContentBlock = serde_json::from_value(json).unwrap();
         match block {
-            ContentBlock::ToolUse { id, name, input } => {
+            ContentBlock::ToolUse { id, name, input, .. } => {
                 assert_eq!(id, "toolu_123");
                 assert_eq!(name, "search");
                 assert_eq!(input["query"], "rust");
@@ -325,6 +338,7 @@ mod tests {
             role: "assistant".into(),
             content: vec![ContentBlock::Text {
                 text: "Hello!".into(),
+                cache_control: None,
             }],
             model: "claude-sonnet-4-20250514".into(),
             stop_reason: Some("end_turn".into()),

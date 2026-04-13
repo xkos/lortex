@@ -46,6 +46,8 @@ pub struct CreateModelRequest {
 
     #[serde(default = "default_true")]
     pub cache_enabled: bool,
+    #[serde(default = "default_cache_strategy")]
+    pub cache_strategy: String,
 
     #[serde(default = "default_one")]
     pub input_multiplier: f64,
@@ -71,6 +73,7 @@ fn default_true() -> bool { true }
 fn default_one() -> f64 { 1.0 }
 fn default_chat() -> String { "chat".into() }
 fn default_api_formats() -> Vec<String> { vec!["openai".into()] }
+fn default_cache_strategy() -> String { "full".into() }
 
 pub async fn list(
     State(state): State<AppState>,
@@ -111,6 +114,7 @@ pub async fn create(
         supports_batch: req.supports_batch,
         context_window: req.context_window,
         cache_enabled: req.cache_enabled,
+        cache_strategy: req.cache_strategy,
         input_multiplier: req.input_multiplier,
         output_multiplier: req.output_multiplier,
         cache_write_multiplier: req.cache_write_multiplier,
@@ -144,6 +148,7 @@ pub struct UpdateModelRequest {
     pub supports_batch: Option<bool>,
     pub context_window: Option<u32>,
     pub cache_enabled: Option<bool>,
+    pub cache_strategy: Option<String>,
     pub input_multiplier: Option<f64>,
     pub output_multiplier: Option<f64>,
     pub cache_write_multiplier: Option<Option<f64>>,
@@ -179,6 +184,7 @@ pub async fn update(
     if let Some(v) = req.supports_batch { model.supports_batch = v; }
     if let Some(v) = req.context_window { model.context_window = v; }
     if let Some(v) = req.cache_enabled { model.cache_enabled = v; }
+    if let Some(v) = req.cache_strategy { model.cache_strategy = v; }
     if let Some(v) = req.input_multiplier { model.input_multiplier = v; }
     if let Some(v) = req.output_multiplier { model.output_multiplier = v; }
     if let Some(v) = req.cache_write_multiplier { model.cache_write_multiplier = v; }

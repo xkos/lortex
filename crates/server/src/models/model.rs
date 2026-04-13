@@ -92,6 +92,9 @@ pub struct Model {
 
     /// 缓存控制（默认开启）
     pub cache_enabled: bool,
+    /// 缓存注入策略（none / system_only / standard / full）
+    #[serde(default = "default_cache_strategy")]
+    pub cache_strategy: String,
 
     // --- 文本计费倍率（每 1k tokens 消耗的 credits）---
     pub input_multiplier: f64,
@@ -111,6 +114,10 @@ pub struct Model {
 
     pub enabled: bool,
     pub created_at: DateTime<Utc>,
+}
+
+fn default_cache_strategy() -> String {
+    "full".into()
 }
 
 impl Model {

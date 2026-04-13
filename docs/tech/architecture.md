@@ -101,6 +101,13 @@ rust/crates/lortex/
 │       ├── in_memory.rs
 │       └── sliding_window.rs
 │
+├── server/                   — 本地 LLM Proxy 服务（Phase 2）
+│   ├── Cargo.toml
+│   └── src/
+│       ├── lib.rs
+│       ├── server.rs             — Axum HTTP 服务，暴露兼容 OpenAI API
+│       └── config.rs             — 本地代理配置读取与热重载
+│
 ├── macros/                   — proc-macro
 │   ├── Cargo.toml
 │   └── src/
@@ -119,6 +126,7 @@ rust/crates/lortex/
 ```
 lortex（facade，re-export 全部）
   ├→ core
+  ├→ server        → core, router, providers
   ├→ executor      → core
   ├→ providers     → core
   ├→ router        → core, providers
@@ -132,7 +140,7 @@ lortex（facade，re-export 全部）
 
 关键约束：
 - **core 是唯一的公共依赖**，所有子 crate 都依赖 core，但子 crate 之间尽量不互相依赖
-- 例外：`executor` 被 `swarm` 依赖（编排需要执行引擎），`providers` 被 `router` 依赖（路由需要调用 Provider）
+- 例外：`executor` 被 `swarm` 依赖（编排需要执行引擎），`providers` 被 `router` 依赖（路由需要调用 Provider），`core`/`router`/`providers` 被 `server` 依赖提供代理能力
 - **lortex facade** 依赖所有子 crate，通过 feature flag 控制哪些子 crate 被引入
 
 ---
@@ -240,6 +248,7 @@ impl Provider for Router {
 | taxon-memory | lortex/memory/ | 重命名，内容基本不变 |
 | taxon-macros | lortex/macros/ | 重命名，内容基本不变 |
 | （新增） | lortex/router/ | Phase 2 新增，异构模型路由 |
+| （新增） | lortex/server/ | Phase 2 新增，本地 LLM Proxy 代理服务 |
 | lortex（旧） | lortex/lortex/ | 从空壳变为 facade，re-export 所有子 crate |
 
 ---
@@ -249,6 +258,39 @@ impl Provider for Router {
 | Phase | 涉及的子 crate | 说明 |
 |-------|---------------|------|
 | Phase 1 | core, executor, providers, protocols, tools, swarm, guardrails, memory, macros, lortex(facade) | 重组现有代码，统一结构 |
-| Phase 2 | + router, providers(扩展) | 异构模型路由、新增 Provider |
+| Phase 2 | + router, + server, providers(扩展) | 异构模型路由、新增 Provider、本地 Proxy 服务 |
 | Phase 3 | protocols(完善), + observability 能力（集成到各 crate 中） | MCP/A2A 完善、可观测性 |
 | Phase 4 | memory(扩展), tools(扩展), swarm(扩展) | RAG、多模态、工作流、插件化 |
+
+---
+
+## 八、LLM Proxy 服务架构
+
+`server` crate 提供了一个开箱即用的本地代理二进制模式：
+
+```text
+AI 代码软件 (Cursor/Windsurf)
+  │
+  ▼ [HTTP POST /v1/chat/completions (OpenAI 协议)]
+  │
+Server (Axum)
+  │
+  ├→ 协议解析 (将外界请求映射为 Lortex Message)
+  ├→ 加载 proxy 路由配置 (API Keys & 路由规则)
+  │
+  ▼
+Router (异构模型路由编排)
+  │
+  ├→ 匹配最优或指定的 Provider
+  │
+  ▼
+Provider (OpenAI/Anthropic/DeepSeek/Local...)
+```
+
+**代理层职责边界**：
+- `server` 仅做**协议暴露**、**密钥提取**和**流式兼容封包** (SSE -> OpenAI chunks)。
+- 核心的**模型质量/成本评估**、**Token流控追踪**由底层的 `router` 和 `providers` 原生兜底。
+
+---
+
+## 九、开放问题
