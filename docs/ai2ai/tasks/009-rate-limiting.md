@@ -1,6 +1,6 @@
 # 任务 009: Rate Limiting — RPM/TPM per ApiKey
 
-> 状态：🔨 进行中
+> 状态：✅ 已关闭
 > 分支：iter/009-rate-limiting
 > 配对迭代：[iterations/009-rate-limiting.md](../iterations/009-rate-limiting.md)
 
@@ -36,15 +36,15 @@
 - 已有功能不受影响（credit、熔断、cache 等）
 
 ## 任务分解
-- [ ] T1: ApiKey 模型 + Admin DTO 扩展
+- [x] T1: ApiKey 模型 + Admin DTO 扩展
   - 验证：ApiKey 结构体有 rpm_limit/tpm_limit 字段；Create/Update/Response DTO 包含这两个字段；`cargo test` 通过
-- [ ] T2: RateLimiter 核心实现
+- [x] T2: RateLimiter 核心实现
   - 验证：单元测试覆盖 check_rpm/record_rpm/check_tpm/record_tokens；滑动窗口正确清理过期条目
-- [ ] T3: proxy_auth 集成 RPM + TPM 检查
+- [x] T3: proxy_auth 集成 RPM + TPM 检查
   - 验证：rpm_limit>0 时超限返回 429；tpm_limit>0 时超限返回 429；limit=0 时不检查
-- [ ] T4: UsageLayer 集成 TPM 记录
+- [x] T4: UsageLayer 集成 TPM 记录
   - 验证：请求完成后 token 数写入 RateLimiter；后续请求能看到累计值
-- [ ] T5: 响应头 + Admin Web
+- [x] T5: 响应头 + Admin Web
   - 验证：429 响应包含 x-ratelimit-* 头；Admin Web 表单/列表显示 RPM/TPM 列
-- [ ] T6: 全量测试 + 归档
+- [x] T6: 全量测试 + 归档
   - 验证：`cargo test --workspace` 全量通过；checklist 生成

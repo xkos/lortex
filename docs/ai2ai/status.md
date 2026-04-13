@@ -1,7 +1,7 @@
 # lortex 项目状态（AI 维护）
 
 > 本文档由 AI 在每次迭代结束后更新，反映项目的实际状态。人工审核后视为有效。
-> 最后更新：2026-04-13
+> 最后更新：2026-04-14
 
 ---
 
@@ -11,7 +11,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 ## 当前迭代
 
-- 当前活跃：无（008-observability-layer 已验收合并）
+- 当前活跃：无（009-rate-limiting 已验收合并）
 
 ---
 
@@ -63,11 +63,12 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 | Prompt cache 透传（cache_control + header 合并） | ✅ |
 | estimated_chars 请求字符数估算 | ✅ |
 | tracing 观测架构（UsageLayer） | ✅ |
+| Rate Limiting（RPM/TPM per ApiKey） | ✅ |
 
 ---
 
 ## 下一步建议
 
 1. /v1/embeddings 实现
-2. Rate Limiting（RPM/TPM per ApiKey）
-3. Streaming retry（mid-stream fallback）
+2. Streaming retry（mid-stream fallback）
+3. 多租户隔离 / 用量看板
