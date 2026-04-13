@@ -11,8 +11,8 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 ## 当前迭代
 
-- 当前活跃：006a-mvp-polish（已完成，待验收合并）
-- 分支：iter/006a-mvp-polish
+- 当前活跃：006b-fallback-health-cache（已完成，待验收合并）
+- 分支：iter/006b-fallback-health-cache
 
 ---
 
@@ -29,8 +29,8 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 | guardrails | ✅ 可用 | 35 tests |
 | memory | ✅ 可用 | 24 tests |
 | macros | ✅ 可用 | 0 tests |
-| router | ✅ 可用 | 43 tests |
-| server | ✅ 可用 | 78 tests |
+| router | ✅ 可用 | 40 tests |
+| server | ✅ 可用 | 93 tests |
 | admin-web | ✅ 可用 | — (前端) |
 
 ---
@@ -59,11 +59,14 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 | extra_headers 注入 | ✅ |
 | handler 去重（shared 模块） | ✅ |
 | cache token 传递 | ✅ |
+| Fallback 路由（主模型失败自动切换） | ✅ |
+| CircuitBreaker 熔断保护 | ✅ |
+| Prompt cache 透传（cache_control + header 合并） | ✅ |
 
 ---
 
 ## 下一步建议
 
-1. 006b: FallbackRouter + 健康检测
-2. /v1/embeddings 实现
-3. Rate Limiting（RPM/TPM per ApiKey）
+1. /v1/embeddings 实现
+2. Rate Limiting（RPM/TPM per ApiKey）
+3. Streaming retry（mid-stream fallback）
