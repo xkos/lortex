@@ -176,6 +176,18 @@ impl AnthropicProvider {
                                     }
                                 }));
                             }
+                            ContentPart::ToolResult {
+                                call_id,
+                                content,
+                                is_error,
+                            } => {
+                                content_blocks.push(serde_json::json!({
+                                    "type": "tool_result",
+                                    "tool_use_id": call_id,
+                                    "content": content,
+                                    "is_error": is_error,
+                                }));
+                            }
                             _ => {}
                         }
                     }
@@ -226,7 +238,7 @@ impl AnthropicProvider {
                             content_blocks.push(serde_json::json!({
                                 "type": "tool_result",
                                 "tool_use_id": call_id,
-                                "content": content.to_string(),
+                                "content": content,
                                 "is_error": is_error,
                             }));
                         }
