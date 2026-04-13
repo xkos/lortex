@@ -13,6 +13,7 @@ pub mod layer;
 pub mod middleware;
 pub mod models;
 pub mod proto;
+pub mod rate_limiter;
 pub mod routes;
 pub mod state;
 pub mod store;

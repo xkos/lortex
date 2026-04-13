@@ -15,6 +15,7 @@ use tracing_subscriber::registry::LookupSpan;
 
 use crate::middleware::proxy_auth::compute_credits;
 use crate::models::UsageRecord;
+use crate::rate_limiter::RateLimiter;
 use crate::store::ProxyStore;
 
 use super::span_data::{SpanData, SpanTiming};
@@ -24,11 +25,12 @@ const USAGE_TARGET: &str = "lortex::usage";
 /// 观测层：自动收集请求指标并写入用量记录
 pub struct UsageLayer {
     store: Arc<dyn ProxyStore>,
+    rate_limiter: Arc<RateLimiter>,
 }
 
 impl UsageLayer {
-    pub fn new(store: Arc<dyn ProxyStore>) -> Self {
-        Self { store }
+    pub fn new(store: Arc<dyn ProxyStore>, rate_limiter: Arc<RateLimiter>) -> Self {
+        Self { store, rate_limiter }
     }
 }
 
@@ -151,6 +153,10 @@ where
         let estimated_chars = data.estimated_chars.unwrap_or(0);
         let model_id = data.model_id.clone().unwrap_or_default();
         let is_stream = data.stream.unwrap_or(false);
+
+        // 记录 token 到 RateLimiter（同步，无需 spawn）
+        let total_tokens = input_tokens + output_tokens;
+        self.rate_limiter.record_tokens(&api_key_id, total_tokens);
 
         let store = self.store.clone();
 

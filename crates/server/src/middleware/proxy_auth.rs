@@ -1,8 +1,10 @@
 //! Proxy API Key 鉴权中间件
 
+use std::time::Duration;
+
 use axum::{
     extract::Request,
-    http::StatusCode,
+    http::{HeaderValue, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
     Json,
@@ -75,6 +77,38 @@ pub async fn proxy_auth(
             .into_response());
     }
 
+    // RPM 检查
+    if let Err(reset_after) = state.rate_limiter.check_rpm(&api_key.id, api_key.rpm_limit) {
+        tracing::warn!(
+            key_id = %api_key.id,
+            key_name = %api_key.name,
+            rpm_limit = api_key.rpm_limit,
+            reset_after_s = reset_after.as_secs(),
+            "RPM limit exceeded"
+        );
+        return Err(rate_limit_response(
+            "RPM limit exceeded",
+            reset_after,
+            api_key.rpm_limit,
+        ));
+    }
+
+    // TPM 检查
+    if let Err(reset_after) = state.rate_limiter.check_tpm(&api_key.id, api_key.tpm_limit) {
+        tracing::warn!(
+            key_id = %api_key.id,
+            key_name = %api_key.name,
+            tpm_limit = api_key.tpm_limit,
+            reset_after_s = reset_after.as_secs(),
+            "TPM limit exceeded"
+        );
+        return Err(rate_limit_response(
+            "TPM limit exceeded",
+            reset_after,
+            api_key.tpm_limit,
+        ));
+    }
+
     tracing::debug!(
         key_id = %api_key.id,
         key_name = %api_key.name,
@@ -86,6 +120,28 @@ pub async fn proxy_auth(
     request.extensions_mut().insert(api_key);
 
     Ok(next.run(request).await)
+}
+
+/// 构造 429 响应，带 x-ratelimit-* 头和 Retry-After
+fn rate_limit_response(message: &str, reset_after: Duration, limit: u32) -> Response {
+    let reset_secs = reset_after.as_secs_f64().ceil() as u64;
+    let mut response = (
+        StatusCode::TOO_MANY_REQUESTS,
+        Json(ErrorResponse::rate_limit(message)),
+    )
+        .into_response();
+
+    let headers = response.headers_mut();
+    if let Ok(v) = HeaderValue::from_str(&limit.to_string()) {
+        headers.insert("x-ratelimit-limit-requests", v);
+    }
+    if let Ok(v) = HeaderValue::from_str(&format!("{reset_secs}s")) {
+        headers.insert("x-ratelimit-reset-requests", v);
+    }
+    if let Ok(v) = HeaderValue::from_str(&reset_secs.to_string()) {
+        headers.insert("retry-after", v);
+    }
+    response
 }
 
 /// 从请求头提取 API key
@@ -254,6 +310,8 @@ mod tests {
             fallback_models: vec![],
             credit_limit: 0, // unlimited
             credit_used: 999999,
+            rpm_limit: 0,
+            tpm_limit: 0,
             enabled: true,
             created_at: chrono::Utc::now(),
             last_used_at: None,
@@ -272,6 +330,8 @@ mod tests {
             fallback_models: vec![],
             credit_limit: 1000,
             credit_used: 500,
+            rpm_limit: 0,
+            tpm_limit: 0,
             enabled: true,
             created_at: chrono::Utc::now(),
             last_used_at: None,
@@ -290,6 +350,8 @@ mod tests {
             fallback_models: vec![],
             credit_limit: 1000,
             credit_used: 1000,
+            rpm_limit: 0,
+            tpm_limit: 0,
             enabled: true,
             created_at: chrono::Utc::now(),
             last_used_at: None,

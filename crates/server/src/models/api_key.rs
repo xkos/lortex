@@ -25,6 +25,13 @@ pub struct ApiKey {
     /// 已消耗额度（只增不减，手动重置接口可清零）
     pub credit_used: i64,
 
+    /// RPM 上限（0 = 不限制）
+    #[serde(default)]
+    pub rpm_limit: u32,
+    /// TPM 上限（0 = 不限制）
+    #[serde(default)]
+    pub tpm_limit: u32,
+
     pub enabled: bool,
     pub created_at: DateTime<Utc>,
     pub last_used_at: Option<DateTime<Utc>>,
