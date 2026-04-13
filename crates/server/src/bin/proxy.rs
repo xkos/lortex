@@ -8,6 +8,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 use lortex_server::layer::UsageLayer;
+use lortex_server::rate_limiter::RateLimiter;
 use lortex_server::{app_router, AppState, ServerConfig};
 use lortex_server::store::SqliteStore;
 
@@ -50,11 +51,14 @@ async fn main() -> anyhow::Result<()> {
 
     let store: Arc<dyn lortex_server::store::ProxyStore> = Arc::new(store);
 
+    // RateLimiter 共享实例 — UsageLayer 和 AppState 同时持有
+    let rate_limiter = Arc::new(RateLimiter::new());
+
     // 初始化 subscriber 栈：env-filter + fmt + UsageLayer
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info,lortex_server=debug"));
     let fmt_layer = tracing_subscriber::fmt::layer();
-    let usage_layer = UsageLayer::new(store.clone());
+    let usage_layer = UsageLayer::new(store.clone(), rate_limiter.clone());
 
     tracing_subscriber::registry()
         .with(env_filter)
@@ -72,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
     );
     tracing::info!("Database initialized: {}", cli.db);
 
-    let state = AppState::new(store);
+    let state = AppState::with_rate_limiter(store, rate_limiter);
 
     let config = ServerConfig {
         port: cli.port,
