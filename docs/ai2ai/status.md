@@ -1,7 +1,7 @@
 # lortex 项目状态（AI 维护）
 
 > 本文档由 AI 在每次迭代结束后更新，反映项目的实际状态。人工审核后视为有效。
-> 最后更新：2026-04-11
+> 最后更新：2026-04-13
 
 ---
 
@@ -11,8 +11,8 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 ## 当前迭代
 
-- 当前活跃：006b-fallback-health-cache（已完成，待验收合并）
-- 分支：iter/006b-fallback-health-cache
+- 当前活跃：007-estimated-chars（已完成，已验收）
+- 分支：iter/007-estimated-chars
 
 ---
 
@@ -62,6 +62,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 | Fallback 路由（主模型失败自动切换） | ✅ |
 | CircuitBreaker 熔断保护 | ✅ |
 | Prompt cache 透传（cache_control + header 合并） | ✅ |
+| estimated_chars 请求字符数估算 | ✅ |
 
 ---
 
