@@ -22,6 +22,10 @@ pub struct CreateApiKeyRequest {
     pub fallback_models: Vec<String>,
     #[serde(default)]
     pub credit_limit: i64,
+    #[serde(default)]
+    pub rpm_limit: u32,
+    #[serde(default)]
+    pub tpm_limit: u32,
     #[serde(default = "default_true")]
     pub enabled: bool,
 }
@@ -35,6 +39,8 @@ pub struct UpdateApiKeyRequest {
     pub default_model: Option<String>,
     pub fallback_models: Option<Vec<String>>,
     pub credit_limit: Option<i64>,
+    pub rpm_limit: Option<u32>,
+    pub tpm_limit: Option<u32>,
     pub enabled: Option<bool>,
 }
 
@@ -48,6 +54,8 @@ pub struct ApiKeyResponse {
     pub default_model: String,
     pub credit_limit: i64,
     pub credit_used: i64,
+    pub rpm_limit: u32,
+    pub tpm_limit: u32,
     pub enabled: bool,
 }
 
@@ -66,6 +74,8 @@ impl From<&ApiKey> for ApiKeyResponse {
             default_model: k.default_model.clone(),
             credit_limit: k.credit_limit,
             credit_used: k.credit_used,
+            rpm_limit: k.rpm_limit,
+            tpm_limit: k.tpm_limit,
             enabled: k.enabled,
         }
     }
@@ -103,6 +113,8 @@ pub async fn create(
         fallback_models: req.fallback_models,
         credit_limit: req.credit_limit,
         credit_used: 0,
+        rpm_limit: req.rpm_limit,
+        tpm_limit: req.tpm_limit,
         enabled: req.enabled,
         created_at: Utc::now(),
         last_used_at: None,
@@ -127,6 +139,8 @@ pub async fn update(
     if let Some(v) = req.default_model { key.default_model = v; }
     if let Some(v) = req.fallback_models { key.fallback_models = v; }
     if let Some(v) = req.credit_limit { key.credit_limit = v; }
+    if let Some(v) = req.rpm_limit { key.rpm_limit = v; }
+    if let Some(v) = req.tpm_limit { key.tpm_limit = v; }
     if let Some(v) = req.enabled { key.enabled = v; }
 
     state.store.upsert_api_key(&key).await

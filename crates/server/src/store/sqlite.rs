@@ -512,6 +512,8 @@ mod tests {
             fallback_models: vec![],
             credit_limit: 100000,
             credit_used: 0,
+            rpm_limit: 0,
+            tpm_limit: 0,
             enabled: true,
             created_at: Utc::now(),
             last_used_at: None,
