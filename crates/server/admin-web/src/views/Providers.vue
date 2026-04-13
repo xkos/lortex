@@ -12,6 +12,12 @@
       <el-table-column prop="vendor" label="Vendor" width="120" />
       <el-table-column prop="display_name" label="Name" />
       <el-table-column prop="base_url" label="Base URL" />
+      <el-table-column prop="website_url" label="Website" width="160">
+        <template #default="{ row }">
+          <a v-if="row.website_url" :href="row.website_url" target="_blank" rel="noopener">{{ row.website_url.replace(/^https?:\/\//, '') }}</a>
+          <span v-else>-</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="enabled" label="Status" width="100">
         <template #default="{ row }">
           <el-tag :type="row.enabled ? 'success' : 'danger'" size="small">
@@ -53,6 +59,9 @@
         <el-form-item label="Base URL">
           <el-input v-model="form.base_url" placeholder="https://api.openai.com/v1" />
         </el-form-item>
+        <el-form-item label="Website">
+          <el-input v-model="form.website_url" placeholder="https://example.com" />
+        </el-form-item>
         <el-form-item label="Enabled">
           <el-switch v-model="form.enabled" />
         </el-form-item>
@@ -76,6 +85,7 @@ interface Provider {
   display_name: string
   api_key: string
   base_url: string
+  website_url: string
   enabled: boolean
 }
 
@@ -86,7 +96,7 @@ const isEdit = ref(false)
 const saving = ref(false)
 
 const emptyForm = (): Provider => ({
-  id: '', vendor: 'openai', display_name: '', api_key: '', base_url: 'https://api.openai.com/v1', enabled: true,
+  id: '', vendor: 'openai', display_name: '', api_key: '', base_url: 'https://api.openai.com/v1', website_url: '', enabled: true,
 })
 const form = ref<Provider>(emptyForm())
 

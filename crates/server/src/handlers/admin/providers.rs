@@ -18,6 +18,8 @@ pub struct CreateProviderRequest {
     pub display_name: String,
     pub api_key: String,
     pub base_url: String,
+    #[serde(default)]
+    pub website_url: String,
     #[serde(default = "default_true")]
     pub enabled: bool,
 }
@@ -30,6 +32,7 @@ pub struct UpdateProviderRequest {
     pub display_name: Option<String>,
     pub api_key: Option<String>,
     pub base_url: Option<String>,
+    pub website_url: Option<String>,
     pub enabled: Option<bool>,
 }
 
@@ -61,6 +64,7 @@ pub async fn create(
         display_name: req.display_name,
         api_key: req.api_key,
         base_url: req.base_url,
+        website_url: req.website_url,
         enabled: req.enabled,
         created_at: Utc::now(),
     };
@@ -82,6 +86,7 @@ pub async fn update(
     if let Some(v) = req.display_name { provider.display_name = v; }
     if let Some(v) = req.api_key { provider.api_key = v; }
     if let Some(v) = req.base_url { provider.base_url = v; }
+    if let Some(v) = req.website_url { provider.website_url = v; }
     if let Some(v) = req.enabled { provider.enabled = v; }
 
     state.store.upsert_provider(&provider).await

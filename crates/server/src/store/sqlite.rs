@@ -462,6 +462,7 @@ mod tests {
             display_name: format!("{id} display"),
             api_key: "sk-test-123".into(),
             base_url: "https://api.openai.com".into(),
+            website_url: String::new(),
             enabled: true,
             created_at: Utc::now(),
         }

@@ -59,6 +59,9 @@ pub struct Provider {
     pub api_key: String,
     /// 厂商 API base URL，支持覆盖（中转场景）
     pub base_url: String,
+    /// 官网链接（方便快速跳转，尤其中转商场景）
+    #[serde(default)]
+    pub website_url: String,
     /// 是否启用
     pub enabled: bool,
     pub created_at: DateTime<Utc>,
