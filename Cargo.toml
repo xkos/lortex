@@ -6,6 +6,8 @@ members = ["crates/*", "examples/*"]
 name = "lortex"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "模块化、高性能的 Rust Agent 框架"
 autoexamples = false
 
@@ -36,6 +38,10 @@ lortex-router = { path = "crates/router", optional = true }
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/xkos/agents"
+homepage = "https://github.com/xkos/agents"
+authors = ["lortex contributors"]
 
 [workspace.dependencies]
 # 外部依赖

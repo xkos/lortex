@@ -2,6 +2,8 @@
 name = "lortex-swarm"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Lortex 多 Agent 编排：Router、Pipeline、Parallel、Hierarchical"
 
 [dependencies]

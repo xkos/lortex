@@ -3,3 +3,12 @@
 *.pdb
 .DS_Store
 *.db
+
+# Secrets
+.env
+.env.*
+
+# AI tool configs (personal)
+.cursor/
+.agents/
+.claude/

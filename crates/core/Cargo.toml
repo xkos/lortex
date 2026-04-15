@@ -2,6 +2,8 @@
 name = "lortex-core"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Lortex 框架核心 trait 和类型定义"
 
 [dependencies]

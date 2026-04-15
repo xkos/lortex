@@ -2,6 +2,8 @@
 name = "lortex-server"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Lortex Proxy 服务：LLM 中转代理的 HTTP 服务层"
 
 [[bin]]
