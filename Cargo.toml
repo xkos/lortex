@@ -39,8 +39,8 @@ lortex-router = { path = "crates/router", optional = true }
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
-repository = "https://github.com/xkos/agents"
-homepage = "https://github.com/xkos/agents"
+repository = "https://github.com/xkos/lortex"
+homepage = "https://github.com/xkos/lortex"
 authors = ["lortex contributors"]
 
 [workspace.dependencies]
