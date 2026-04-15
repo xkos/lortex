@@ -8,7 +8,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::state::AppState;
-use crate::store::traits::{UsageQuery, UsageSummary};
+use crate::store::traits::{GroupedUsage, TrendPoint, UsageQuery, UsageSummary};
 
 #[derive(Deserialize)]
 pub struct UsageQueryParams {
@@ -80,4 +80,46 @@ pub async fn summary(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(summary))
+}
+
+/// POST /admin/api/v1/usage/trend — 时间趋势（按日分桶）
+pub async fn trend(
+    State(state): State<AppState>,
+    Json(params): Json<UsageQueryParams>,
+) -> Result<Json<Vec<TrendPoint>>, (StatusCode, String)> {
+    let query = params.to_query().map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let points = state
+        .store
+        .usage_trend(&query)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(points))
+}
+
+/// POST /admin/api/v1/usage/by-model — 按模型分组
+pub async fn by_model(
+    State(state): State<AppState>,
+    Json(params): Json<UsageQueryParams>,
+) -> Result<Json<Vec<GroupedUsage>>, (StatusCode, String)> {
+    let query = params.to_query().map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let groups = state
+        .store
+        .usage_by_model(&query)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(groups))
+}
+
+/// POST /admin/api/v1/usage/by-key — 按 ApiKey 分组
+pub async fn by_key(
+    State(state): State<AppState>,
+    Json(params): Json<UsageQueryParams>,
+) -> Result<Json<Vec<GroupedUsage>>, (StatusCode, String)> {
+    let query = params.to_query().map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let groups = state
+        .store
+        .usage_by_key(&query)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(groups))
 }

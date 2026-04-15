@@ -65,6 +65,31 @@
       </el-form-item>
     </el-form>
 
+    <!-- Charts -->
+    <el-row :gutter="16" style="margin-bottom: 20px;">
+      <el-col :span="24">
+        <el-card shadow="hover">
+          <template #header><span>Daily Trend</span></template>
+          <v-chart :option="trendOption" style="height: 300px;" autoresize />
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <el-row :gutter="16" style="margin-bottom: 20px;">
+      <el-col :span="12">
+        <el-card shadow="hover">
+          <template #header><span>Credits by Model</span></template>
+          <v-chart :option="modelOption" style="height: 300px;" autoresize />
+        </el-card>
+      </el-col>
+      <el-col :span="12">
+        <el-card shadow="hover">
+          <template #header><span>Credits by API Key</span></template>
+          <v-chart :option="keyOption" style="height: 300px;" autoresize />
+        </el-card>
+      </el-col>
+    </el-row>
+
     <!-- Usage Records Table -->
     <el-table :data="records" v-loading="loading" stripe style="width: 100%;">
       <el-table-column label="Time" width="180">
@@ -124,13 +149,54 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import VChart from 'vue-echarts'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { LineChart, PieChart, BarChart } from 'echarts/charts'
+import {
+  TitleComponent,
+  TooltipComponent,
+  LegendComponent,
+  GridComponent,
+} from 'echarts/components'
 import api from '../api'
+
+use([
+  CanvasRenderer,
+  LineChart,
+  PieChart,
+  BarChart,
+  TitleComponent,
+  TooltipComponent,
+  LegendComponent,
+  GridComponent,
+])
+
+interface TrendPoint {
+  date: string
+  requests: number
+  input_tokens: number
+  output_tokens: number
+  credits: number
+}
+
+interface GroupedUsage {
+  group_key: string
+  display_name: string
+  requests: number
+  input_tokens: number
+  output_tokens: number
+  credits: number
+}
 
 const records = ref<any[]>([])
 const summary = ref<any>({})
 const apiKeys = ref<any[]>([])
+const trendData = ref<TrendPoint[]>([])
+const modelData = ref<GroupedUsage[]>([])
+const keyData = ref<GroupedUsage[]>([])
 const loading = ref(false)
 const dateRange = ref<string[] | null>(null)
 
@@ -145,20 +211,84 @@ function buildQuery() {
     q.start_time = dateRange.value[0]
     q.end_time = dateRange.value[1]
   }
-  q.limit = 200
   return q
 }
+
+const trendOption = computed(() => ({
+  tooltip: { trigger: 'axis' },
+  legend: { data: ['Requests', 'Credits'] },
+  grid: { left: 60, right: 40, bottom: 30, top: 40 },
+  xAxis: { type: 'category', data: trendData.value.map((p) => p.date) },
+  yAxis: [
+    { type: 'value', name: 'Requests', position: 'left' },
+    { type: 'value', name: 'Credits', position: 'right' },
+  ],
+  series: [
+    {
+      name: 'Requests',
+      type: 'line',
+      smooth: true,
+      data: trendData.value.map((p) => p.requests),
+    },
+    {
+      name: 'Credits',
+      type: 'line',
+      smooth: true,
+      yAxisIndex: 1,
+      data: trendData.value.map((p) => p.credits),
+    },
+  ],
+}))
+
+const modelOption = computed(() => ({
+  tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+  series: [
+    {
+      type: 'pie',
+      radius: ['35%', '65%'],
+      label: { formatter: '{b}\n{d}%' },
+      data: modelData.value.map((m) => ({
+        name: m.display_name,
+        value: m.credits,
+      })),
+    },
+  ],
+}))
+
+const keyOption = computed(() => ({
+  tooltip: { trigger: 'axis' },
+  grid: { left: 100, right: 40, bottom: 30, top: 20 },
+  xAxis: { type: 'value', name: 'Credits' },
+  yAxis: {
+    type: 'category',
+    data: keyData.value.map((k) => k.display_name).reverse(),
+    axisLabel: { width: 80, overflow: 'truncate' },
+  },
+  series: [
+    {
+      type: 'bar',
+      data: keyData.value.map((k) => k.credits).reverse(),
+    },
+  ],
+}))
 
 async function fetchData() {
   loading.value = true
   try {
     const query = buildQuery()
-    const [recordsResp, summaryResp] = await Promise.all([
-      api.post('/usage', query),
-      api.post('/usage/summary', query),
-    ])
+    const [recordsResp, summaryResp, trendResp, modelResp, keyResp] =
+      await Promise.all([
+        api.post('/usage', { ...query, limit: 200 }),
+        api.post('/usage/summary', query),
+        api.post('/usage/trend', query),
+        api.post('/usage/by-model', query),
+        api.post('/usage/by-key', query),
+      ])
     records.value = recordsResp.data
     summary.value = summaryResp.data
+    trendData.value = trendResp.data
+    modelData.value = modelResp.data
+    keyData.value = keyResp.data
   } catch {
     ElMessage.error('Failed to load usage data')
   } finally {
