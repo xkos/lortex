@@ -4,8 +4,6 @@
 
 ## 核心约束
 
-**不依赖 Taxon 主 crate 的任何类型。**
-
 ## 子 crate 结构
 
 ```
@@ -22,6 +20,7 @@ lortex/
 │   ├── swarm/        — 多 Agent 编排（Router, Pipeline, Parallel, Hierarchical）
 │   ├── guardrails/   — 安全护栏（ContentFilter, RateLimiter, TokenBudget, ToolApproval）
 │   ├── memory/       — 记忆实现（InMemory, SlidingWindow）
+│   ├── server/       — 本地 LLM Proxy 服务（HTTP Gateway, 兼容 OpenAI API）
 │   └── macros/       — proc-macro（#[tool] 宏）
 ├── examples/
 └── docs/
@@ -33,6 +32,7 @@ core 是唯一公共依赖，子 crate 之间尽量不互相依赖：
 
 ```
 lortex(facade) → 所有子 crate
+server         → core, router, providers
 executor       → core
 providers      → core
 router         → core
