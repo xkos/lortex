@@ -1,42 +1,42 @@
 <template>
   <div>
-    <h2 style="margin: 0 0 16px;">Usage Statistics</h2>
+    <h2 style="margin: 0 0 16px;">{{ $t('usage.title') }}</h2>
 
     <!-- Summary Cards -->
     <el-row :gutter="16" style="margin-bottom: 20px;">
       <el-col :span="4">
         <el-card shadow="hover">
-          <div class="stat-label">Total Requests</div>
+          <div class="stat-label">{{ $t('usage.totalRequests') }}</div>
           <div class="stat-value">{{ summary.total_requests?.toLocaleString() || 0 }}</div>
         </el-card>
       </el-col>
       <el-col :span="4">
         <el-card shadow="hover">
-          <div class="stat-label">Input Tokens</div>
+          <div class="stat-label">{{ $t('usage.inputTokens') }}</div>
           <div class="stat-value">{{ summary.total_input_tokens?.toLocaleString() || 0 }}</div>
         </el-card>
       </el-col>
       <el-col :span="4">
         <el-card shadow="hover">
-          <div class="stat-label">Output Tokens</div>
+          <div class="stat-label">{{ $t('usage.outputTokens') }}</div>
           <div class="stat-value">{{ summary.total_output_tokens?.toLocaleString() || 0 }}</div>
         </el-card>
       </el-col>
       <el-col :span="4">
         <el-card shadow="hover">
-          <div class="stat-label">Cache Write</div>
+          <div class="stat-label">{{ $t('usage.cacheWrite') }}</div>
           <div class="stat-value">{{ summary.total_cache_write_tokens?.toLocaleString() || 0 }}</div>
         </el-card>
       </el-col>
       <el-col :span="4">
         <el-card shadow="hover">
-          <div class="stat-label">Cache Read</div>
+          <div class="stat-label">{{ $t('usage.cacheRead') }}</div>
           <div class="stat-value">{{ summary.total_cache_read_tokens?.toLocaleString() || 0 }}</div>
         </el-card>
       </el-col>
       <el-col :span="4">
         <el-card shadow="hover">
-          <div class="stat-label">Total Credits</div>
+          <div class="stat-label">{{ $t('usage.totalCredits') }}</div>
           <div class="stat-value">{{ summary.total_credits?.toLocaleString() || 0 }}</div>
         </el-card>
       </el-col>
@@ -44,24 +44,24 @@
 
     <!-- Filters -->
     <el-form :inline="true" style="margin-bottom: 16px;">
-      <el-form-item label="API Key">
-        <el-select v-model="filter.api_key_id" clearable placeholder="All keys" style="width: 200px;">
+      <el-form-item :label="$t('usage.apiKey')">
+        <el-select v-model="filter.api_key_id" clearable :placeholder="$t('usage.allKeys')" style="width: 200px;">
           <el-option v-for="k in apiKeys" :key="k.id" :label="k.name" :value="k.id" />
         </el-select>
       </el-form-item>
-      <el-form-item label="Time Range">
+      <el-form-item :label="$t('usage.timeRange')">
         <el-date-picker
           v-model="dateRange"
           type="datetimerange"
           range-separator="-"
-          start-placeholder="Start"
-          end-placeholder="End"
+          :start-placeholder="$t('usage.start')"
+          :end-placeholder="$t('usage.end')"
           format="YYYY-MM-DD HH:mm"
           value-format="YYYY-MM-DDTHH:mm:ssZ"
         />
       </el-form-item>
       <el-form-item>
-        <el-button type="primary" @click="fetchData">Query</el-button>
+        <el-button type="primary" @click="fetchData">{{ $t('usage.query') }}</el-button>
       </el-form-item>
     </el-form>
 
@@ -69,7 +69,7 @@
     <el-row :gutter="16" style="margin-bottom: 20px;">
       <el-col :span="24">
         <el-card shadow="hover">
-          <template #header><span>Daily Trend</span></template>
+          <template #header><span>{{ $t('usage.dailyTrend') }}</span></template>
           <v-chart :option="trendOption" style="height: 300px;" autoresize />
         </el-card>
       </el-col>
@@ -78,13 +78,13 @@
     <el-row :gutter="16" style="margin-bottom: 20px;">
       <el-col :span="12">
         <el-card shadow="hover">
-          <template #header><span>Credits by Model</span></template>
+          <template #header><span>{{ $t('usage.creditsByModel') }}</span></template>
           <v-chart :option="modelOption" style="height: 300px;" autoresize />
         </el-card>
       </el-col>
       <el-col :span="12">
         <el-card shadow="hover">
-          <template #header><span>Credits by API Key</span></template>
+          <template #header><span>{{ $t('usage.creditsByKey') }}</span></template>
           <v-chart :option="keyOption" style="height: 300px;" autoresize />
         </el-card>
       </el-col>
@@ -92,54 +92,54 @@
 
     <!-- Usage Records Table -->
     <el-table :data="records" v-loading="loading" stripe style="width: 100%;">
-      <el-table-column label="Time" width="180">
+      <el-table-column :label="$t('usage.time')" width="180">
         <template #default="{ row }">
           {{ formatTime(row.created_at) }}
         </template>
       </el-table-column>
-      <el-table-column prop="api_key_name" label="API Key" width="150" />
-      <el-table-column label="Model" min-width="200">
+      <el-table-column prop="api_key_name" :label="$t('usage.apiKey')" width="150" />
+      <el-table-column :label="$t('usage.model')" min-width="200">
         <template #default="{ row }">
           {{ row.provider_id }}/{{ row.vendor_model_name }}
         </template>
       </el-table-column>
-      <el-table-column prop="request_endpoint" label="Endpoint" width="180" />
-      <el-table-column prop="input_tokens" label="Input" width="100" align="right">
+      <el-table-column prop="request_endpoint" :label="$t('usage.endpoint')" width="180" />
+      <el-table-column prop="input_tokens" :label="$t('usage.input')" width="100" align="right">
         <template #default="{ row }">
           {{ row.input_tokens.toLocaleString() }}
         </template>
       </el-table-column>
-      <el-table-column prop="output_tokens" label="Output" width="100" align="right">
+      <el-table-column prop="output_tokens" :label="$t('usage.output')" width="100" align="right">
         <template #default="{ row }">
           {{ row.output_tokens.toLocaleString() }}
         </template>
       </el-table-column>
-      <el-table-column prop="cache_write_tokens" label="Cache W" width="100" align="right">
+      <el-table-column prop="cache_write_tokens" :label="$t('usage.cacheW')" width="100" align="right">
         <template #default="{ row }">
           {{ row.cache_write_tokens ? row.cache_write_tokens.toLocaleString() : '-' }}
         </template>
       </el-table-column>
-      <el-table-column prop="cache_read_tokens" label="Cache R" width="100" align="right">
+      <el-table-column prop="cache_read_tokens" :label="$t('usage.cacheR')" width="100" align="right">
         <template #default="{ row }">
           {{ row.cache_read_tokens ? row.cache_read_tokens.toLocaleString() : '-' }}
         </template>
       </el-table-column>
-      <el-table-column prop="estimated_chars" label="Est.Chars" width="110" align="right">
+      <el-table-column prop="estimated_chars" :label="$t('usage.estChars')" width="110" align="right">
         <template #default="{ row }">
           {{ row.estimated_chars ? row.estimated_chars.toLocaleString() : '-' }}
         </template>
       </el-table-column>
-      <el-table-column prop="credits_consumed" label="Credits" width="100" align="right">
+      <el-table-column prop="credits_consumed" :label="$t('usage.credits')" width="100" align="right">
         <template #default="{ row }">
           {{ row.credits_consumed.toLocaleString() }}
         </template>
       </el-table-column>
-      <el-table-column prop="ttft_ms" label="TTFT" width="90" align="right">
+      <el-table-column prop="ttft_ms" :label="$t('usage.ttft')" width="90" align="right">
         <template #default="{ row }">
           {{ row.ttft_ms > 0 ? row.ttft_ms + 'ms' : '-' }}
         </template>
       </el-table-column>
-      <el-table-column prop="latency_ms" label="Latency" width="100" align="right">
+      <el-table-column prop="latency_ms" :label="$t('usage.latency')" width="100" align="right">
         <template #default="{ row }">
           {{ row.latency_ms > 0 ? row.latency_ms + 'ms' : '-' }}
         </template>
@@ -151,6 +151,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -162,6 +163,8 @@ import {
   GridComponent,
 } from 'echarts/components'
 import api from '../api'
+
+const { t } = useI18n()
 
 use([
   CanvasRenderer,
@@ -216,22 +219,22 @@ function buildQuery() {
 
 const trendOption = computed(() => ({
   tooltip: { trigger: 'axis' },
-  legend: { data: ['Requests', 'Credits'] },
+  legend: { data: [t('usage.requests'), t('usage.credits')] },
   grid: { left: 60, right: 40, bottom: 30, top: 40 },
   xAxis: { type: 'category', data: trendData.value.map((p) => p.date) },
   yAxis: [
-    { type: 'value', name: 'Requests', position: 'left' },
-    { type: 'value', name: 'Credits', position: 'right' },
+    { type: 'value', name: t('usage.requests'), position: 'left' },
+    { type: 'value', name: t('usage.credits'), position: 'right' },
   ],
   series: [
     {
-      name: 'Requests',
+      name: t('usage.requests'),
       type: 'line',
       smooth: true,
       data: trendData.value.map((p) => p.requests),
     },
     {
-      name: 'Credits',
+      name: t('usage.credits'),
       type: 'line',
       smooth: true,
       yAxisIndex: 1,
@@ -258,7 +261,7 @@ const modelOption = computed(() => ({
 const keyOption = computed(() => ({
   tooltip: { trigger: 'axis' },
   grid: { left: 100, right: 40, bottom: 30, top: 20 },
-  xAxis: { type: 'value', name: 'Credits' },
+  xAxis: { type: 'value', name: t('usage.credits') },
   yAxis: {
     type: 'category',
     data: keyData.value.map((k) => k.display_name).reverse(),
@@ -290,7 +293,7 @@ async function fetchData() {
     modelData.value = modelResp.data
     keyData.value = keyResp.data
   } catch {
-    ElMessage.error('Failed to load usage data')
+    ElMessage.error(t('usage.loadFailed'))
   } finally {
     loading.value = false
   }

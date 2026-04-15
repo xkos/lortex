@@ -1,148 +1,148 @@
 <template>
   <div>
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-      <h2 style="margin: 0;">Models</h2>
+      <h2 style="margin: 0;">{{ $t('models.title') }}</h2>
       <el-button type="primary" @click="showCreate">
-        <el-icon><Plus /></el-icon> Add Model
+        <el-icon><Plus /></el-icon> {{ $t('models.add') }}
       </el-button>
     </div>
 
     <el-table :data="models" v-loading="loading" stripe>
-      <el-table-column label="ID" width="280">
+      <el-table-column :label="$t('common.id')" width="280">
         <template #default="{ row }">
           {{ row.provider_id }}/{{ row.vendor_model_name }}
         </template>
       </el-table-column>
-      <el-table-column prop="display_name" label="Name" width="180" />
-      <el-table-column prop="model_type" label="Type" width="100" />
-      <el-table-column label="API Formats" width="160">
+      <el-table-column prop="display_name" :label="$t('common.name')" width="180" />
+      <el-table-column prop="model_type" :label="$t('models.type')" width="100" />
+      <el-table-column :label="$t('models.apiFormats')" width="160">
         <template #default="{ row }">
           <el-tag v-for="f in row.api_formats" :key="f" size="small" style="margin: 2px;">{{ f }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="Multiplier" width="160">
+      <el-table-column :label="$t('models.multiplier')" width="160">
         <template #default="{ row }">
-          In: {{ row.input_multiplier }}x / Out: {{ row.output_multiplier }}x
+          {{ $t('models.inOut', { input: row.input_multiplier, output: row.output_multiplier }) }}
         </template>
       </el-table-column>
-      <el-table-column label="Capabilities" min-width="200">
+      <el-table-column :label="$t('models.capabilities')" min-width="200">
         <template #default="{ row }">
-          <el-tag v-if="row.supports_tools" size="small" style="margin: 2px;">Tools</el-tag>
-          <el-tag v-if="row.supports_vision" size="small" style="margin: 2px;">Vision</el-tag>
-          <el-tag v-if="row.supports_streaming" size="small" style="margin: 2px;">Stream</el-tag>
-          <el-tag v-if="row.supports_cache" size="small" style="margin: 2px;">Cache</el-tag>
-          <el-tag v-if="row.supports_structured_output" size="small" style="margin: 2px;">JSON</el-tag>
+          <el-tag v-if="row.supports_tools" size="small" style="margin: 2px;">{{ $t('models.tools') }}</el-tag>
+          <el-tag v-if="row.supports_vision" size="small" style="margin: 2px;">{{ $t('models.vision') }}</el-tag>
+          <el-tag v-if="row.supports_streaming" size="small" style="margin: 2px;">{{ $t('models.stream') }}</el-tag>
+          <el-tag v-if="row.supports_cache" size="small" style="margin: 2px;">{{ $t('models.cache') }}</el-tag>
+          <el-tag v-if="row.supports_structured_output" size="small" style="margin: 2px;">{{ $t('models.json') }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="enabled" label="Status" width="100">
+      <el-table-column prop="enabled" :label="$t('common.status')" width="100">
         <template #default="{ row }">
           <el-tag :type="row.enabled ? 'success' : 'danger'" size="small">
-            {{ row.enabled ? 'Enabled' : 'Disabled' }}
+            {{ row.enabled ? $t('common.enabled') : $t('common.disabled') }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="Actions" width="180">
+      <el-table-column :label="$t('common.actions')" width="180">
         <template #default="{ row }">
-          <el-button size="small" @click="showEdit(row)">Edit</el-button>
-          <el-popconfirm title="Delete this model?" @confirm="handleDelete(row.provider_id, row.vendor_model_name)">
+          <el-button size="small" @click="showEdit(row)">{{ $t('common.edit') }}</el-button>
+          <el-popconfirm :title="$t('models.confirmDelete')" @confirm="handleDelete(row.provider_id, row.vendor_model_name)">
             <template #reference>
-              <el-button size="small" type="danger">Delete</el-button>
+              <el-button size="small" type="danger">{{ $t('common.delete') }}</el-button>
             </template>
           </el-popconfirm>
         </template>
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="isEdit ? 'Edit Model' : 'Add Model'" width="600px">
+    <el-dialog v-model="dialogVisible" :title="isEdit ? $t('models.editTitle') : $t('models.addTitle')" width="600px">
       <el-form :model="form" label-width="140px">
-        <el-form-item label="Provider ID" v-if="!isEdit">
-          <el-select v-model="form.provider_id" placeholder="Select provider">
+        <el-form-item :label="$t('models.providerId')" v-if="!isEdit">
+          <el-select v-model="form.provider_id" :placeholder="$t('models.selectProvider')">
             <el-option v-for="p in providers" :key="p.id" :label="p.display_name" :value="p.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="Model Name" v-if="!isEdit">
-          <el-input v-model="form.vendor_model_name" placeholder="e.g. gpt-4o" />
+        <el-form-item :label="$t('models.modelName')" v-if="!isEdit">
+          <el-input v-model="form.vendor_model_name" :placeholder="$t('models.modelNamePlaceholder')" />
         </el-form-item>
-        <el-form-item label="Provider / Model" v-if="isEdit">
+        <el-form-item :label="$t('models.providerModel')" v-if="isEdit">
           <el-input :model-value="`${form.provider_id}/${form.vendor_model_name}`" disabled />
         </el-form-item>
-        <el-form-item label="Display Name">
+        <el-form-item :label="$t('models.displayName')">
           <el-input v-model="form.display_name" />
         </el-form-item>
-        <el-form-item label="Aliases">
-          <el-input v-model="aliasesStr" placeholder="Comma separated, e.g. gpt4,gpt-4" />
+        <el-form-item :label="$t('models.aliases')">
+          <el-input v-model="aliasesStr" :placeholder="$t('models.aliasesPlaceholder')" />
         </el-form-item>
-        <el-form-item label="Type">
+        <el-form-item :label="$t('models.type')">
           <el-select v-model="form.model_type">
-            <el-option label="Chat" value="chat" />
-            <el-option label="Embedding" value="embedding" />
-            <el-option label="Image Generation" value="image_generation" />
-            <el-option label="TTS" value="tts" />
-            <el-option label="STT" value="stt" />
+            <el-option :label="$t('models.chat')" value="chat" />
+            <el-option :label="$t('models.embedding')" value="embedding" />
+            <el-option :label="$t('models.imageGeneration')" value="image_generation" />
+            <el-option :label="$t('models.tts')" value="tts" />
+            <el-option :label="$t('models.stt')" value="stt" />
           </el-select>
         </el-form-item>
-        <el-form-item label="API Formats">
+        <el-form-item :label="$t('models.apiFormats')">
           <el-checkbox-group v-model="form.api_formats">
             <el-checkbox label="openai" value="openai">OpenAI</el-checkbox>
             <el-checkbox label="anthropic" value="anthropic">Anthropic</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
 
-        <el-divider>Capabilities</el-divider>
-        <el-form-item label="Features">
-          <el-checkbox v-model="form.supports_streaming">Streaming</el-checkbox>
-          <el-checkbox v-model="form.supports_tools">Tools</el-checkbox>
-          <el-checkbox v-model="form.supports_vision">Vision</el-checkbox>
-          <el-checkbox v-model="form.supports_cache">Cache</el-checkbox>
-          <el-checkbox v-model="form.supports_structured_output">Structured Output</el-checkbox>
-          <el-checkbox v-model="form.supports_prefill">Prefill</el-checkbox>
-          <el-checkbox v-model="form.supports_web_search">Web Search</el-checkbox>
+        <el-divider>{{ $t('models.capabilities') }}</el-divider>
+        <el-form-item :label="$t('models.features')">
+          <el-checkbox v-model="form.supports_streaming">{{ $t('models.streaming') }}</el-checkbox>
+          <el-checkbox v-model="form.supports_tools">{{ $t('models.tools') }}</el-checkbox>
+          <el-checkbox v-model="form.supports_vision">{{ $t('models.vision') }}</el-checkbox>
+          <el-checkbox v-model="form.supports_cache">{{ $t('models.cache') }}</el-checkbox>
+          <el-checkbox v-model="form.supports_structured_output">{{ $t('models.structuredOutput') }}</el-checkbox>
+          <el-checkbox v-model="form.supports_prefill">{{ $t('models.prefill') }}</el-checkbox>
+          <el-checkbox v-model="form.supports_web_search">{{ $t('models.webSearch') }}</el-checkbox>
         </el-form-item>
-        <el-form-item label="Context Window">
+        <el-form-item :label="$t('models.contextWindow')">
           <el-input-number v-model="form.context_window" :min="0" :step="1000" />
         </el-form-item>
 
-        <el-divider>Pricing (credits per 1k tokens)</el-divider>
-        <el-form-item label="Input">
+        <el-divider>{{ $t('models.pricing') }}</el-divider>
+        <el-form-item :label="$t('models.input')">
           <el-input-number v-model="form.input_multiplier" :min="0" :precision="2" :step="0.1" />
         </el-form-item>
-        <el-form-item label="Output">
+        <el-form-item :label="$t('models.output')">
           <el-input-number v-model="form.output_multiplier" :min="0" :precision="2" :step="0.1" />
         </el-form-item>
-        <el-form-item label="Cache Write">
+        <el-form-item :label="$t('models.cacheWrite')">
           <el-input-number v-model="form.cache_write_multiplier" :min="0" :precision="2" :step="0.1" />
         </el-form-item>
-        <el-form-item label="Cache Read">
+        <el-form-item :label="$t('models.cacheRead')">
           <el-input-number v-model="form.cache_read_multiplier" :min="0" :precision="2" :step="0.1" />
         </el-form-item>
 
-        <el-divider>Status</el-divider>
-        <el-form-item label="Enabled">
+        <el-divider>{{ $t('common.status') }}</el-divider>
+        <el-form-item :label="$t('common.enabled')">
           <el-switch v-model="form.enabled" />
         </el-form-item>
-        <el-form-item label="Cache Enabled">
+        <el-form-item :label="$t('models.cacheEnabled')">
           <el-switch v-model="form.cache_enabled" />
         </el-form-item>
-        <el-form-item label="Cache Strategy">
+        <el-form-item :label="$t('models.cacheStrategy')">
           <el-select v-model="form.cache_strategy" :disabled="!form.cache_enabled" style="width: 200px;">
-            <el-option label="None" value="none" />
-            <el-option label="System Only" value="system_only" />
-            <el-option label="Standard" value="standard" />
-            <el-option label="Full (Recommended)" value="full" />
+            <el-option :label="$t('models.strategyNone')" value="none" />
+            <el-option :label="$t('models.strategySystem')" value="system_only" />
+            <el-option :label="$t('models.strategyStandard')" value="standard" />
+            <el-option :label="$t('models.strategyFull')" value="full" />
           </el-select>
           <el-tooltip placement="top">
             <template #content>
-              Auto-injects cache_control breakpoints into upstream requests.<br/>
-              Only effective when the backend model supports Anthropic prompt caching.<br/>
-              Non-Anthropic models will ignore the extra fields with no side effects.
+              {{ $t('models.cacheTip1') }}<br/>
+              {{ $t('models.cacheTip2') }}<br/>
+              {{ $t('models.cacheTip3') }}
             </template>
             <el-icon style="margin-left: 6px; cursor: help;"><QuestionFilled /></el-icon>
           </el-tooltip>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">Cancel</el-button>
-        <el-button type="primary" @click="handleSave" :loading="saving">Save</el-button>
+        <el-button @click="dialogVisible = false">{{ $t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="handleSave" :loading="saving">{{ $t('common.save') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -151,7 +151,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import api from '../api'
+
+const { t } = useI18n()
 
 const models = ref<any[]>([])
 const providers = ref<any[]>([])
@@ -193,7 +196,7 @@ async function fetchModels() {
     const { data } = await api.get('/models')
     models.value = data
   } catch {
-    ElMessage.error('Failed to load models')
+    ElMessage.error(t('models.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -231,15 +234,15 @@ async function handleSave() {
   try {
     if (isEdit.value) {
       await api.put(`/models/${form.value.provider_id}/${form.value.vendor_model_name}`, payload)
-      ElMessage.success('Model updated')
+      ElMessage.success(t('models.updated'))
     } else {
       await api.post('/models', payload)
-      ElMessage.success('Model created')
+      ElMessage.success(t('models.created'))
     }
     dialogVisible.value = false
     await fetchModels()
   } catch (e: any) {
-    ElMessage.error(e.response?.data?.error?.message || 'Save failed')
+    ElMessage.error(e.response?.data?.error?.message || t('common.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -248,10 +251,10 @@ async function handleSave() {
 async function handleDelete(providerId: string, modelName: string) {
   try {
     await api.delete(`/models/${providerId}/${modelName}`)
-    ElMessage.success('Model deleted')
+    ElMessage.success(t('models.deleted'))
     await fetchModels()
   } catch {
-    ElMessage.error('Delete failed')
+    ElMessage.error(t('common.deleteFailed'))
   }
 }
 
