@@ -13,7 +13,7 @@ use crate::models::model::Model;
 use crate::models::provider::Provider;
 use crate::models::usage::UsageRecord;
 use crate::store::error::StoreError;
-use crate::store::traits::{ProxyStore, UsageQuery, UsageSummary};
+use crate::store::traits::{GroupedUsage, ProxyStore, TrendPoint, UsageQuery, UsageSummary};
 
 /// SQLite 存储后端
 pub struct SqliteStore {
@@ -381,6 +381,101 @@ impl ProxyStore for SqliteStore {
         }
 
         Ok(summary)
+    }
+
+    async fn usage_trend(&self, query: &UsageQuery) -> Result<Vec<TrendPoint>, StoreError> {
+        let records = self
+            .query_usage(&UsageQuery {
+                limit: None,
+                ..query.clone()
+            })
+            .await?;
+
+        let mut buckets: std::collections::BTreeMap<String, TrendPoint> =
+            std::collections::BTreeMap::new();
+
+        for r in &records {
+            let date = r.created_at.format("%Y-%m-%d").to_string();
+            let point = buckets.entry(date.clone()).or_insert_with(|| TrendPoint {
+                date,
+                requests: 0,
+                input_tokens: 0,
+                output_tokens: 0,
+                credits: 0,
+            });
+            point.requests += 1;
+            point.input_tokens += r.input_tokens as u64;
+            point.output_tokens += r.output_tokens as u64;
+            point.credits += r.credits_consumed;
+        }
+
+        Ok(buckets.into_values().collect())
+    }
+
+    async fn usage_by_model(&self, query: &UsageQuery) -> Result<Vec<GroupedUsage>, StoreError> {
+        let records = self
+            .query_usage(&UsageQuery {
+                limit: None,
+                ..query.clone()
+            })
+            .await?;
+
+        let mut groups: std::collections::HashMap<String, GroupedUsage> =
+            std::collections::HashMap::new();
+
+        for r in &records {
+            let model_id = r.model_id();
+            let entry = groups.entry(model_id.clone()).or_insert_with(|| GroupedUsage {
+                group_key: model_id.clone(),
+                display_name: model_id,
+                requests: 0,
+                input_tokens: 0,
+                output_tokens: 0,
+                credits: 0,
+            });
+            entry.requests += 1;
+            entry.input_tokens += r.input_tokens as u64;
+            entry.output_tokens += r.output_tokens as u64;
+            entry.credits += r.credits_consumed;
+        }
+
+        let mut result: Vec<GroupedUsage> = groups.into_values().collect();
+        result.sort_by(|a, b| b.credits.cmp(&a.credits));
+        Ok(result)
+    }
+
+    async fn usage_by_key(&self, query: &UsageQuery) -> Result<Vec<GroupedUsage>, StoreError> {
+        let records = self
+            .query_usage(&UsageQuery {
+                limit: None,
+                ..query.clone()
+            })
+            .await?;
+
+        let mut groups: std::collections::HashMap<String, GroupedUsage> =
+            std::collections::HashMap::new();
+
+        for r in &records {
+            let entry =
+                groups
+                    .entry(r.api_key_id.clone())
+                    .or_insert_with(|| GroupedUsage {
+                        group_key: r.api_key_id.clone(),
+                        display_name: r.api_key_name.clone(),
+                        requests: 0,
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        credits: 0,
+                    });
+            entry.requests += 1;
+            entry.input_tokens += r.input_tokens as u64;
+            entry.output_tokens += r.output_tokens as u64;
+            entry.credits += r.credits_consumed;
+        }
+
+        let mut result: Vec<GroupedUsage> = groups.into_values().collect();
+        result.sort_by(|a, b| b.credits.cmp(&a.credits));
+        Ok(result)
     }
 
     // --- Health ---
@@ -792,5 +887,137 @@ mod tests {
     async fn migrate_is_idempotent() {
         let store = test_store().await;
         store.migrate().await.unwrap();
+    }
+
+    // --- Usage aggregation tests ---
+
+    fn test_usage(
+        id: &str,
+        api_key_id: &str,
+        api_key_name: &str,
+        provider_id: &str,
+        model_name: &str,
+        input_tokens: u32,
+        output_tokens: u32,
+        credits: i64,
+        created_at: chrono::DateTime<Utc>,
+    ) -> UsageRecord {
+        UsageRecord {
+            id: id.into(),
+            api_key_id: api_key_id.into(),
+            api_key_name: api_key_name.into(),
+            provider_id: provider_id.into(),
+            vendor_model_name: model_name.into(),
+            request_endpoint: "/v1/chat/completions".into(),
+            input_tokens,
+            cache_write_tokens: 0,
+            cache_read_tokens: 0,
+            output_tokens,
+            image_input_units: 0,
+            audio_input_seconds: 0.0,
+            credits_consumed: credits,
+            estimated_chars: 0,
+            ttft_ms: 0,
+            latency_ms: 0,
+            created_at,
+        }
+    }
+
+    #[tokio::test]
+    async fn usage_trend_empty() {
+        let store = test_store().await;
+        let result = store.usage_trend(&UsageQuery::default()).await.unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn usage_trend_groups_by_day() {
+        let store = test_store().await;
+        let day1 = chrono::DateTime::parse_from_rfc3339("2026-04-10T08:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let day1b = chrono::DateTime::parse_from_rfc3339("2026-04-10T20:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let day2 = chrono::DateTime::parse_from_rfc3339("2026-04-11T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        store.insert_usage(&test_usage("u1", "k1", "key1", "openai", "gpt-4o", 100, 50, 500, day1)).await.unwrap();
+        store.insert_usage(&test_usage("u2", "k1", "key1", "openai", "gpt-4o", 200, 80, 800, day1b)).await.unwrap();
+        store.insert_usage(&test_usage("u3", "k1", "key1", "anthropic", "claude", 150, 60, 600, day2)).await.unwrap();
+
+        let trend = store.usage_trend(&UsageQuery::default()).await.unwrap();
+        assert_eq!(trend.len(), 2);
+        assert_eq!(trend[0].date, "2026-04-10");
+        assert_eq!(trend[0].requests, 2);
+        assert_eq!(trend[0].input_tokens, 300);
+        assert_eq!(trend[0].credits, 1300);
+        assert_eq!(trend[1].date, "2026-04-11");
+        assert_eq!(trend[1].requests, 1);
+    }
+
+    #[tokio::test]
+    async fn usage_by_model_groups_and_sorts() {
+        let store = test_store().await;
+        let now = Utc::now();
+
+        store.insert_usage(&test_usage("u1", "k1", "key1", "openai", "gpt-4o", 100, 50, 500, now)).await.unwrap();
+        store.insert_usage(&test_usage("u2", "k1", "key1", "openai", "gpt-4o", 200, 80, 800, now)).await.unwrap();
+        store.insert_usage(&test_usage("u3", "k1", "key1", "anthropic", "claude", 150, 60, 2000, now)).await.unwrap();
+
+        let by_model = store.usage_by_model(&UsageQuery::default()).await.unwrap();
+        assert_eq!(by_model.len(), 2);
+        // sorted by credits desc: anthropic/claude(2000) > openai/gpt-4o(1300)
+        assert_eq!(by_model[0].group_key, "anthropic/claude");
+        assert_eq!(by_model[0].credits, 2000);
+        assert_eq!(by_model[1].group_key, "openai/gpt-4o");
+        assert_eq!(by_model[1].requests, 2);
+        assert_eq!(by_model[1].input_tokens, 300);
+    }
+
+    #[tokio::test]
+    async fn usage_by_key_groups_and_sorts() {
+        let store = test_store().await;
+        let now = Utc::now();
+
+        store.insert_usage(&test_usage("u1", "k1", "Alice", "openai", "gpt-4o", 100, 50, 500, now)).await.unwrap();
+        store.insert_usage(&test_usage("u2", "k2", "Bob", "openai", "gpt-4o", 200, 80, 2000, now)).await.unwrap();
+        store.insert_usage(&test_usage("u3", "k1", "Alice", "anthropic", "claude", 150, 60, 600, now)).await.unwrap();
+
+        let by_key = store.usage_by_key(&UsageQuery::default()).await.unwrap();
+        assert_eq!(by_key.len(), 2);
+        // sorted by credits desc: k2(2000) > k1(1100)
+        assert_eq!(by_key[0].group_key, "k2");
+        assert_eq!(by_key[0].display_name, "Bob");
+        assert_eq!(by_key[0].credits, 2000);
+        assert_eq!(by_key[1].group_key, "k1");
+        assert_eq!(by_key[1].requests, 2);
+    }
+
+    #[tokio::test]
+    async fn usage_trend_respects_time_filter() {
+        let store = test_store().await;
+        let day1 = chrono::DateTime::parse_from_rfc3339("2026-04-10T08:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let day2 = chrono::DateTime::parse_from_rfc3339("2026-04-11T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        store.insert_usage(&test_usage("u1", "k1", "key1", "openai", "gpt-4o", 100, 50, 500, day1)).await.unwrap();
+        store.insert_usage(&test_usage("u2", "k1", "key1", "openai", "gpt-4o", 200, 80, 800, day2)).await.unwrap();
+
+        let query = UsageQuery {
+            start_time: Some(
+                chrono::DateTime::parse_from_rfc3339("2026-04-11T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+            ),
+            ..Default::default()
+        };
+        let trend = store.usage_trend(&query).await.unwrap();
+        assert_eq!(trend.len(), 1);
+        assert_eq!(trend[0].date, "2026-04-11");
     }
 }

@@ -27,6 +27,30 @@ pub struct UsageSummary {
     pub total_credits: i64,
 }
 
+/// 时间趋势数据点（按日分桶）
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TrendPoint {
+    /// 分桶起始时间（ISO 8601 日期，如 "2026-04-13"）
+    pub date: String,
+    pub requests: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub credits: i64,
+}
+
+/// 分组聚合结果（用于 by-model / by-key）
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GroupedUsage {
+    /// 分组键（model_id 如 "openai/gpt-4o"，或 api_key_id）
+    pub group_key: String,
+    /// 可选显示名（api_key_name 或 model display_name）
+    pub display_name: String,
+    pub requests: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub credits: i64,
+}
+
 #[async_trait]
 pub trait ProxyStore: Send + Sync {
     // --- Provider ---
@@ -67,6 +91,9 @@ pub trait ProxyStore: Send + Sync {
     async fn insert_usage(&self, record: &UsageRecord) -> Result<(), StoreError>;
     async fn query_usage(&self, query: &UsageQuery) -> Result<Vec<UsageRecord>, StoreError>;
     async fn summarize_usage(&self, query: &UsageQuery) -> Result<UsageSummary, StoreError>;
+    async fn usage_trend(&self, query: &UsageQuery) -> Result<Vec<TrendPoint>, StoreError>;
+    async fn usage_by_model(&self, query: &UsageQuery) -> Result<Vec<GroupedUsage>, StoreError>;
+    async fn usage_by_key(&self, query: &UsageQuery) -> Result<Vec<GroupedUsage>, StoreError>;
 
     // --- Health ---
     async fn get_health_status(
