@@ -89,8 +89,10 @@ impl tracing::field::Visit for SpanData {
         }
     }
 
-    fn record_debug(&mut self, _field: &tracing::field::Field, _value: &dyn std::fmt::Debug) {
-        // 忽略 Debug 格式字段（如 Display 格式的 %api_key_id 也会走 record_str）
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        // % (Display) 格式的字段通过 record_debug 传递，需要格式化后转发
+        let s = format!("{:?}", value);
+        self.record_str(field, &s);
     }
 }
 
