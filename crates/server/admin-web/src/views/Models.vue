@@ -116,6 +116,16 @@
           <el-input-number v-model="form.cache_read_multiplier" :min="0" :precision="2" :step="0.1" />
         </el-form-item>
 
+        <el-divider>{{ $t('models.rateLimits') }}</el-divider>
+        <el-form-item :label="$t('models.rpmLimit')">
+          <el-input-number v-model="form.rpm_limit" :min="0" :step="10" />
+          <span style="margin-left: 8px; color: #909399;">{{ $t('models.unlimitedHint') }}</span>
+        </el-form-item>
+        <el-form-item :label="$t('models.tpmLimit')">
+          <el-input-number v-model="form.tpm_limit" :min="0" :step="10000" />
+          <span style="margin-left: 8px; color: #909399;">{{ $t('models.unlimitedHint') }}</span>
+        </el-form-item>
+
         <el-divider>{{ $t('common.status') }}</el-divider>
         <el-form-item :label="$t('common.enabled')">
           <el-switch v-model="form.enabled" />
@@ -186,6 +196,8 @@ const emptyForm = () => ({
   output_multiplier: 1.0,
   cache_write_multiplier: 0,
   cache_read_multiplier: 0,
+  rpm_limit: 0,
+  tpm_limit: 0,
   enabled: true,
 })
 const form = ref(emptyForm())

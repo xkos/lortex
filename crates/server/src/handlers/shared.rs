@@ -144,19 +144,36 @@ fn is_retriable(e: &ProviderError) -> bool {
 }
 
 /// 解析主模型 + fallback 模型列表（按优先级），过滤不可用的 provider
+///
+/// 当主模型设置了 rpm_limit / tpm_limit 时，自动将 api_key.model_group
+/// 中同类型的其他模型追加为降级候选。
 pub async fn resolve_models_with_fallback(
     state: &AppState,
     api_key: &ApiKey,
     model_name: &str,
 ) -> Result<Vec<Model>, ProxyError> {
     let primary = resolve_model(state, api_key, model_name).await?;
-    let mut models = vec![primary];
+    let has_model_rate_limit = primary.rpm_limit > 0 || primary.tpm_limit > 0;
+    let mut models = vec![primary.clone()];
 
     for fallback_name in &api_key.fallback_models {
         if let Ok(m) = resolve_model(state, api_key, fallback_name).await {
             // 避免重复
             if !models.iter().any(|existing| existing.id() == m.id()) {
                 models.push(m);
+            }
+        }
+    }
+
+    // 如果主模型有限流，追加 model_group 中同类型的其他模型作为降级候选
+    if has_model_rate_limit {
+        for name in &api_key.model_group {
+            if let Ok(m) = resolve_model(state, api_key, name).await {
+                if m.model_type == primary.model_type
+                    && !models.iter().any(|existing| existing.id() == m.id())
+                {
+                    models.push(m);
+                }
             }
         }
     }
@@ -195,6 +212,21 @@ pub async fn complete_with_fallback(
             continue;
         }
 
+        // 检查模型级 RPM 限流
+        if model.rpm_limit > 0 {
+            if state.rate_limiter.check_model_rpm(&model.id(), model.rpm_limit).is_err() {
+                tracing::info!(model = %model.id(), "Skipping RPM-limited model");
+                continue;
+            }
+        }
+        // 检查模型级 TPM 限流
+        if model.tpm_limit > 0 {
+            if state.rate_limiter.check_model_tpm(&model.id(), model.tpm_limit).is_err() {
+                tracing::info!(model = %model.id(), "Skipping TPM-limited model");
+                continue;
+            }
+        }
+
         // 构建 provider
         let provider = match build_provider_with_headers(state, model, preferred_format, client_headers).await {
             Ok(p) => p,
@@ -215,6 +247,8 @@ pub async fn complete_with_fallback(
             Ok(resp) => {
                 // 记录成功
                 let _ = state.circuit_breaker.record_success(&model.provider_id).await;
+                // 记录模型级 RPM
+                state.rate_limiter.record_model_request(&model.id());
                 return Ok((resp, model.clone()));
             }
             Err(e) => {

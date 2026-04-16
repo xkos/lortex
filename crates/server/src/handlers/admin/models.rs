@@ -65,6 +65,11 @@ pub struct CreateModelRequest {
     #[serde(default)]
     pub extra_headers: HashMap<String, String>,
 
+    #[serde(default)]
+    pub rpm_limit: u32,
+    #[serde(default)]
+    pub tpm_limit: u32,
+
     #[serde(default = "default_true")]
     pub enabled: bool,
 }
@@ -125,6 +130,8 @@ pub async fn create(
         image_generation_multiplier: req.image_generation_multiplier,
         tts_multiplier: req.tts_multiplier,
         extra_headers: req.extra_headers,
+        rpm_limit: req.rpm_limit,
+        tpm_limit: req.tpm_limit,
         enabled: req.enabled,
         created_at: Utc::now(),
     };
@@ -159,6 +166,8 @@ pub struct UpdateModelRequest {
     pub image_generation_multiplier: Option<Option<f64>>,
     pub tts_multiplier: Option<Option<f64>>,
     pub extra_headers: Option<HashMap<String, String>>,
+    pub rpm_limit: Option<u32>,
+    pub tpm_limit: Option<u32>,
     pub enabled: Option<bool>,
 }
 
@@ -195,6 +204,8 @@ pub async fn update(
     if let Some(v) = req.image_generation_multiplier { model.image_generation_multiplier = v; }
     if let Some(v) = req.tts_multiplier { model.tts_multiplier = v; }
     if let Some(v) = req.extra_headers { model.extra_headers = v; }
+    if let Some(v) = req.rpm_limit { model.rpm_limit = v; }
+    if let Some(v) = req.tpm_limit { model.tpm_limit = v; }
     if let Some(v) = req.enabled { model.enabled = v; }
 
     state.store.upsert_model(&model).await

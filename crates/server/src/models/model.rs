@@ -112,6 +112,12 @@ pub struct Model {
     /// 自定义 header（转发请求时自动附加）
     pub extra_headers: HashMap<String, String>,
 
+    // --- 模型级限流（0 = 不限制）---
+    #[serde(default)]
+    pub rpm_limit: u32,
+    #[serde(default)]
+    pub tpm_limit: u32,
+
     pub enabled: bool,
     pub created_at: DateTime<Utc>,
 }

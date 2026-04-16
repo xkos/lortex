@@ -119,6 +119,96 @@ impl RateLimiter {
             .or_default()
             .push_back((now, tokens));
     }
+
+    // ---- 模型级限流（key 加 "model:" 前缀，与 per-ApiKey 计数器隔离）----
+
+    fn model_key(model_id: &str) -> String {
+        format!("model:{model_id}")
+    }
+
+    /// 检查模型级 RPM（只查不记录）
+    pub fn check_model_rpm(&self, model_id: &str, limit: u32) -> Result<RpmStatus, Duration> {
+        if limit == 0 {
+            return Ok(RpmStatus { remaining: u32::MAX, reset_after: Duration::ZERO });
+        }
+
+        let key = Self::model_key(model_id);
+        let now = Instant::now();
+        let entry = self.rpm.entry(key).or_default();
+        let window = &*entry;
+
+        // 不 pop_front（只查），计算有效条目数
+        let count = window.iter().filter(|ts| now.duration_since(**ts) <= WINDOW).count() as u32;
+        if count >= limit {
+            let reset_after = window
+                .iter()
+                .find(|ts| now.duration_since(**ts) <= WINDOW)
+                .map(|ts| WINDOW.checked_sub(now.duration_since(*ts)).unwrap_or(Duration::ZERO))
+                .unwrap_or(Duration::ZERO);
+            return Err(reset_after);
+        }
+
+        Ok(RpmStatus { remaining: limit - count, reset_after: Duration::ZERO })
+    }
+
+    /// 记录模型级请求（RPM 计数 +1）
+    pub fn record_model_request(&self, model_id: &str) {
+        let key = Self::model_key(model_id);
+        let now = Instant::now();
+        let mut entry = self.rpm.entry(key).or_default();
+        let window = &mut *entry;
+
+        // 清理过期条目
+        while let Some(front) = window.front() {
+            if now.duration_since(*front) > WINDOW {
+                window.pop_front();
+            } else {
+                break;
+            }
+        }
+        window.push_back(now);
+    }
+
+    /// 检查模型级 TPM（只查不记录）
+    pub fn check_model_tpm(&self, model_id: &str, limit: u32) -> Result<u32, Duration> {
+        if limit == 0 {
+            return Ok(u32::MAX);
+        }
+
+        let key = Self::model_key(model_id);
+        let now = Instant::now();
+        let entry = self.tpm.entry(key).or_default();
+        let window = &*entry;
+
+        let total: u32 = window
+            .iter()
+            .filter(|(ts, _)| now.duration_since(*ts) <= WINDOW)
+            .map(|(_, t)| t)
+            .sum();
+        if total >= limit {
+            let reset_after = window
+                .iter()
+                .find(|(ts, _)| now.duration_since(*ts) <= WINDOW)
+                .map(|(ts, _)| WINDOW.checked_sub(now.duration_since(*ts)).unwrap_or(Duration::ZERO))
+                .unwrap_or(Duration::ZERO);
+            return Err(reset_after);
+        }
+
+        Ok(limit - total)
+    }
+
+    /// 记录模型级 token 使用量（由 UsageLayer 调用）
+    pub fn record_model_tokens(&self, model_id: &str, tokens: u32) {
+        if tokens == 0 {
+            return;
+        }
+        let key = Self::model_key(model_id);
+        let now = Instant::now();
+        self.tpm
+            .entry(key)
+            .or_default()
+            .push_back((now, tokens));
+    }
 }
 
 #[cfg(test)]
@@ -221,5 +311,85 @@ mod tests {
         // 过期条目应被清理
         let remaining = rl.check_tpm("k1", 1000).unwrap();
         assert_eq!(remaining, 1000);
+    }
+
+    // ---- 模型级限流测试 ----
+
+    #[test]
+    fn model_rpm_unlimited() {
+        let rl = RateLimiter::new();
+        for _ in 0..100 {
+            rl.record_model_request("p/m1");
+        }
+        assert!(rl.check_model_rpm("p/m1", 0).is_ok());
+    }
+
+    #[test]
+    fn model_rpm_within_limit() {
+        let rl = RateLimiter::new();
+        for _ in 0..3 {
+            rl.record_model_request("p/m1");
+        }
+        let status = rl.check_model_rpm("p/m1", 5).unwrap();
+        assert_eq!(status.remaining, 2);
+    }
+
+    #[test]
+    fn model_rpm_exceeds_limit() {
+        let rl = RateLimiter::new();
+        for _ in 0..3 {
+            rl.record_model_request("p/m1");
+        }
+        let err = rl.check_model_rpm("p/m1", 3).unwrap_err();
+        assert!(err <= WINDOW);
+    }
+
+    #[test]
+    fn model_rpm_isolation() {
+        let rl = RateLimiter::new();
+        for _ in 0..3 {
+            rl.record_model_request("p/m1");
+        }
+        assert!(rl.check_model_rpm("p/m1", 3).is_err());
+        // m2 is independent
+        assert!(rl.check_model_rpm("p/m2", 3).is_ok());
+        // per-ApiKey counter is also independent
+        assert!(rl.check_rpm("p/m1", 3).is_ok());
+    }
+
+    #[test]
+    fn model_tpm_within_limit() {
+        let rl = RateLimiter::new();
+        rl.record_model_tokens("p/m1", 500);
+        let remaining = rl.check_model_tpm("p/m1", 1000).unwrap();
+        assert_eq!(remaining, 500);
+    }
+
+    #[test]
+    fn model_tpm_exceeds_limit() {
+        let rl = RateLimiter::new();
+        rl.record_model_tokens("p/m1", 800);
+        rl.record_model_tokens("p/m1", 300);
+        assert!(rl.check_model_tpm("p/m1", 1000).is_err());
+    }
+
+    #[test]
+    fn model_tpm_zero_not_recorded() {
+        let rl = RateLimiter::new();
+        rl.record_model_tokens("p/m1", 0);
+        assert!(!rl.tpm.contains_key("model:p/m1"));
+    }
+
+    #[test]
+    fn model_rpm_window_expires() {
+        let rl = RateLimiter::new();
+        {
+            let key = RateLimiter::model_key("p/m1");
+            let mut entry = rl.rpm.entry(key).or_default();
+            entry.push_back(Instant::now() - WINDOW - Duration::from_secs(1));
+        }
+        // 过期条目不计入
+        let status = rl.check_model_rpm("p/m1", 1).unwrap();
+        assert_eq!(status.remaining, 1);
     }
 }

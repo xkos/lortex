@@ -130,10 +130,25 @@ async fn chat_completions_stream(
             tracing::info!(provider = %m.provider_id, "Skipping circuit-broken provider (stream)");
             continue;
         }
+        // 检查模型级 RPM/TPM 限流
+        if m.rpm_limit > 0 {
+            if state.rate_limiter.check_model_rpm(&m.id(), m.rpm_limit).is_err() {
+                tracing::info!(model = %m.id(), "Skipping RPM-limited model (stream)");
+                continue;
+            }
+        }
+        if m.tpm_limit > 0 {
+            if state.rate_limiter.check_model_tpm(&m.id(), m.tpm_limit).is_err() {
+                tracing::info!(model = %m.id(), "Skipping TPM-limited model (stream)");
+                continue;
+            }
+        }
         match shared::build_provider_with_headers(&state, m, &ApiFormat::OpenAI, &client_headers).await {
             Ok(p) => {
                 model = Some(m.clone());
                 provider = Some(p);
+                // 记录模型级 RPM
+                state.rate_limiter.record_model_request(&m.id());
                 break;
             }
             Err(e) => {

@@ -230,6 +230,8 @@ mod tests {
             image_generation_multiplier: None,
             tts_multiplier: None,
             extra_headers: HashMap::new(),
+            rpm_limit: 0,
+            tpm_limit: 0,
             enabled: true,
             created_at: chrono::Utc::now(),
         }

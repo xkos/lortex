@@ -262,6 +262,8 @@ async fn chat_completions_model_not_in_group() {
         image_generation_multiplier: None,
         tts_multiplier: None,
         extra_headers: std::collections::HashMap::new(),
+        rpm_limit: 0,
+        tpm_limit: 0,
         enabled: true,
         created_at: Utc::now(),
     };

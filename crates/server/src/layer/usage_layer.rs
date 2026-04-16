@@ -158,6 +158,9 @@ where
         let total_tokens = input_tokens + output_tokens;
         self.rate_limiter.record_tokens(&api_key_id, total_tokens);
 
+        // 记录模型级 token（用于模型级 TPM 限流）
+        self.rate_limiter.record_model_tokens(&model_id, total_tokens);
+
         let store = self.store.clone();
 
         // on_close 是同步回调，异步写库需要 tokio::spawn
