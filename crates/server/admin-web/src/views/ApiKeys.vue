@@ -208,9 +208,11 @@ const createdKey = ref('')
 const mappingList = ref<{ placeholder: string; model: string }[]>([])
 
 const CLAUDE_PRESETS = [
-  'claude-sonnet-4-6',
-  'claude-opus-4-6',
-  'claude-haiku-4-5-20251001',
+  'ANTHROPIC_MODEL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  'ANTHROPIC_REASONING_MODEL',
 ]
 
 function quickAddClaude() {
