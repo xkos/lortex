@@ -1,5 +1,7 @@
 //! Admin API — ApiKey 管理
 
+use std::collections::HashMap;
+
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -26,6 +28,8 @@ pub struct CreateApiKeyRequest {
     pub rpm_limit: u32,
     #[serde(default)]
     pub tpm_limit: u32,
+    #[serde(default)]
+    pub model_map: HashMap<String, String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
 }
@@ -41,6 +45,7 @@ pub struct UpdateApiKeyRequest {
     pub credit_limit: Option<i64>,
     pub rpm_limit: Option<u32>,
     pub tpm_limit: Option<u32>,
+    pub model_map: Option<HashMap<String, String>>,
     pub enabled: Option<bool>,
 }
 
@@ -56,6 +61,7 @@ pub struct ApiKeyResponse {
     pub credit_used: i64,
     pub rpm_limit: u32,
     pub tpm_limit: u32,
+    pub model_map: HashMap<String, String>,
     pub enabled: bool,
 }
 
@@ -76,6 +82,7 @@ impl From<&ApiKey> for ApiKeyResponse {
             credit_used: k.credit_used,
             rpm_limit: k.rpm_limit,
             tpm_limit: k.tpm_limit,
+            model_map: k.model_map.clone(),
             enabled: k.enabled,
         }
     }
@@ -115,6 +122,7 @@ pub async fn create(
         credit_used: 0,
         rpm_limit: req.rpm_limit,
         tpm_limit: req.tpm_limit,
+        model_map: req.model_map,
         enabled: req.enabled,
         created_at: Utc::now(),
         last_used_at: None,
@@ -141,6 +149,7 @@ pub async fn update(
     if let Some(v) = req.credit_limit { key.credit_limit = v; }
     if let Some(v) = req.rpm_limit { key.rpm_limit = v; }
     if let Some(v) = req.tpm_limit { key.tpm_limit = v; }
+    if let Some(v) = req.model_map { key.model_map = v; }
     if let Some(v) = req.enabled { key.enabled = v; }
 
     state.store.upsert_api_key(&key).await

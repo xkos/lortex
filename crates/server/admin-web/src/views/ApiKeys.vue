@@ -82,6 +82,22 @@
             <el-option v-for="m in createForm.model_group" :key="m" :label="m" :value="m" />
           </el-select>
         </el-form-item>
+
+        <el-divider>{{ $t('keys.modelMap') }}</el-divider>
+        <div v-for="(m, idx) in mappingList" :key="idx" style="display: flex; gap: 8px; margin-bottom: 8px; padding: 0 20px;">
+          <el-input v-model="m.placeholder" :placeholder="$t('keys.placeholder')" style="flex: 1;" />
+          <el-select v-model="m.model" :placeholder="$t('keys.targetModel')" style="flex: 1;" filterable>
+            <el-option v-for="name in createForm.model_group" :key="name" :label="name" :value="name" />
+          </el-select>
+          <el-button type="danger" :icon="Delete" circle size="small" @click="mappingList.splice(idx, 1)" />
+        </div>
+        <el-form-item>
+          <el-button @click="mappingList.push({ placeholder: '', model: '' })">
+            <el-icon><Plus /></el-icon> {{ $t('keys.addMapping') }}
+          </el-button>
+          <el-button @click="quickAddClaude">{{ $t('keys.quickAddClaude') }}</el-button>
+        </el-form-item>
+
         <el-form-item :label="$t('keys.creditLimit')">
           <el-input-number v-model="createForm.credit_limit" :min="0" :step="10000" />
           <span style="margin-left: 8px; color: #909399;">{{ $t('keys.unlimitedHint') }}</span>
@@ -132,6 +148,22 @@
             <el-option v-for="m in editForm.model_group" :key="m" :label="m" :value="m" />
           </el-select>
         </el-form-item>
+
+        <el-divider>{{ $t('keys.modelMap') }}</el-divider>
+        <div v-for="(m, idx) in mappingList" :key="idx" style="display: flex; gap: 8px; margin-bottom: 8px; padding: 0 20px;">
+          <el-input v-model="m.placeholder" :placeholder="$t('keys.placeholder')" style="flex: 1;" />
+          <el-select v-model="m.model" :placeholder="$t('keys.targetModel')" style="flex: 1;" filterable>
+            <el-option v-for="name in editForm.model_group" :key="name" :label="name" :value="name" />
+          </el-select>
+          <el-button type="danger" :icon="Delete" circle size="small" @click="mappingList.splice(idx, 1)" />
+        </div>
+        <el-form-item>
+          <el-button @click="mappingList.push({ placeholder: '', model: '' })">
+            <el-icon><Plus /></el-icon> {{ $t('keys.addMapping') }}
+          </el-button>
+          <el-button @click="quickAddClaude">{{ $t('keys.quickAddClaude') }}</el-button>
+        </el-form-item>
+
         <el-form-item :label="$t('keys.creditLimit')">
           <el-input-number v-model="editForm.credit_limit" :min="0" :step="10000" />
         </el-form-item>
@@ -158,6 +190,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Delete } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import api from '../api'
 
@@ -172,6 +205,22 @@ const createDialogVisible = ref(false)
 const keyCreatedVisible = ref(false)
 const editDialogVisible = ref(false)
 const createdKey = ref('')
+const mappingList = ref<{ placeholder: string; model: string }[]>([])
+
+const CLAUDE_PRESETS = [
+  'claude-sonnet-4-6',
+  'claude-opus-4-6',
+  'claude-haiku-4-5-20251001',
+]
+
+function quickAddClaude() {
+  const existing = new Set(mappingList.value.map(m => m.placeholder))
+  for (const name of CLAUDE_PRESETS) {
+    if (!existing.has(name)) {
+      mappingList.value.push({ placeholder: name, model: '' })
+    }
+  }
+}
 
 const createForm = ref({
   name: '',
@@ -218,6 +267,7 @@ async function fetchModels() {
 
 function showCreate() {
   createForm.value = { name: '', model_group: [], default_model: '', credit_limit: 0, rpm_limit: 0, tpm_limit: 0 }
+  mappingList.value = []
   createDialogVisible.value = true
 }
 
@@ -232,13 +282,24 @@ function showEdit(row: any) {
     tpm_limit: row.tpm_limit || 0,
     enabled: row.enabled,
   }
+  const mm = row.model_map || {}
+  mappingList.value = Object.entries(mm).map(([placeholder, model]) => ({ placeholder, model: model as string }))
   editDialogVisible.value = true
+}
+
+function buildModelMap(): Record<string, string> | null {
+  const map: Record<string, string> = {}
+  for (const m of mappingList.value) {
+    if (m.placeholder.trim() && m.model) map[m.placeholder.trim()] = m.model
+  }
+  return Object.keys(map).length > 0 ? map : null
 }
 
 async function handleCreate() {
   saving.value = true
   try {
-    const { data } = await api.post('/keys', createForm.value)
+    const payload = { ...createForm.value, model_map: buildModelMap() }
+    const { data } = await api.post('/keys', payload)
     createdKey.value = data.key
     createDialogVisible.value = false
     keyCreatedVisible.value = true
@@ -253,7 +314,8 @@ async function handleCreate() {
 async function handleUpdate() {
   saving.value = true
   try {
-    await api.put(`/keys/${editForm.value.id}`, editForm.value)
+    const payload = { ...editForm.value, model_map: buildModelMap() }
+    await api.put(`/keys/${editForm.value.id}`, payload)
     ElMessage.success(t('keys.keyUpdated'))
     editDialogVisible.value = false
     await fetchKeys()

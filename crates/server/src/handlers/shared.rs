@@ -58,6 +58,8 @@ pub async fn resolve_model(
 ) -> Result<Model, ProxyError> {
     let effective_name = if model_name == "PROXY_MANAGED" {
         &api_key.default_model
+    } else if let Some(mapped) = api_key.model_map.get(model_name) {
+        mapped.as_str()
     } else {
         model_name
     };

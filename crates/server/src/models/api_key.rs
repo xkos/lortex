@@ -1,5 +1,7 @@
 //! ApiKey — 代理密钥（租户隔离 + 额度控制）
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -31,6 +33,11 @@ pub struct ApiKey {
     /// TPM 上限（0 = 不限制）
     #[serde(default)]
     pub tpm_limit: u32,
+
+    /// 模型映射（客户端模型名 → 实际模型 ID）
+    /// 例: "claude-sonnet-4-6" → "anthropic/claude-sonnet-4-6"
+    #[serde(default)]
+    pub model_map: HashMap<String, String>,
 
     pub enabled: bool,
     pub created_at: DateTime<Utc>,

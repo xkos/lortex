@@ -623,6 +623,7 @@ mod tests {
             credit_used: 0,
             rpm_limit: 0,
             tpm_limit: 0,
+            model_map: Default::default(),
             enabled: true,
             created_at: Utc::now(),
             last_used_at: None,
