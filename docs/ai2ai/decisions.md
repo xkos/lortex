@@ -2,7 +2,7 @@
 
 > 记录实现过程中的技术微决策、踩坑经验和 Boundary 变更。
 > 避免跨 session 重复讨论或重复踩坑。
-> 最后更新：2026-03-24
+> 最后更新：2026-04-16
 
 ---
 
@@ -18,4 +18,10 @@
 
 ## 记录
 
-（随项目推进积累）
+### D-001: 模型限流 check/record 分离（iter 011）
+
+`check_model_rpm` 只读不记录，`record_model_request` 单独记录。原因：路由选择阶段可能检查多个候选模型，只有真正选中的模型才应计数。如果 check 时就 +1，被跳过的候选也会消耗计数配额。
+
+### D-002: 模型限流使用 "model:" key 前缀而非独立 DashMap（iter 011）
+
+在同一个 RateLimiter 的 DashMap 中用 `"model:{id}"` 前缀隔离 per-model 计数器，而非新建独立的数据结构。原因：复用已有滑动窗口逻辑，减少代码重复；key 空间天然不冲突（ApiKey id 是 UUID，不会以 "model:" 开头）。
