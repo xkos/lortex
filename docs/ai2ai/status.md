@@ -1,7 +1,7 @@
 # lortex 项目状态（AI 维护）
 
 > 本文档由 AI 在每次迭代结束后更新，反映项目的实际状态。人工审核后视为有效。
-> 最后更新：2026-04-16
+> 最后更新：2026-04-17
 
 ---
 
@@ -11,7 +11,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 ## 当前迭代
 
-- 当前活跃：无（012-embeddings-endpoint 已验收）
+- 当前活跃：无（013-cache-hitrate-extra-headers 已验收）
 
 ---
 
@@ -66,7 +66,9 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 | tracing 观测架构（UsageLayer） | ✅ |
 | Rate Limiting（RPM/TPM per ApiKey） | ✅ |
 | Usage Dashboard（趋势+模型+ApiKey 图表） | ✅ |
+| 缓存命中率（Usage Dashboard 卡片 + 趋势折线） | ✅ |
 | 模型级限流 + 溢出降级（per-model RPM/TPM） | ✅ |
+| 模型自定义 Header UI（extra_headers 编辑器） | ✅ |
 | i18n 中英双语（vue-i18n + Element Plus locale） | ✅ |
 
 ---
