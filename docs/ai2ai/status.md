@@ -11,7 +11,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 ## 当前迭代
 
-- 当前活跃：无（013-cache-hitrate-extra-headers 已验收）
+- 当前活跃：无（014-apikey-model-map 已验收）
 
 ---
 
@@ -49,7 +49,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 |------|:---:|
 | API Key 鉴权 | ✅ |
 | Credit 扣减 | ✅ |
-| 模型寻址（PROXY_MANAGED/ID/别名） | ✅ |
+| 模型寻址（PROXY_MANAGED/ID/别名/model_map） | ✅ |
 | api_formats 协议自动选择 | ✅ |
 | SSE 响应兼容（中转服务） | ✅ |
 | 结构化日志 | ✅ |
@@ -69,6 +69,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 | 缓存命中率（Usage Dashboard 卡片 + 趋势折线） | ✅ |
 | 模型级限流 + 溢出降级（per-model RPM/TPM） | ✅ |
 | 模型自定义 Header UI（extra_headers 编辑器） | ✅ |
+| ApiKey model_map（客户端模型名→实际模型映射） | ✅ |
 | i18n 中英双语（vue-i18n + Element Plus locale） | ✅ |
 
 ---
