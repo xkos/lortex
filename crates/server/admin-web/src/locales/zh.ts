@@ -100,6 +100,10 @@ export default {
     rpmLimit: 'RPM 限制',
     tpmLimit: 'TPM 限制',
     unlimitedHint: '0 = 不限制',
+    extraHeaders: '自定义 Header',
+    headerKey: '键',
+    headerValue: '值',
+    addHeader: '添加 Header',
     loadFailed: '加载模型列表失败',
     created: '模型已创建',
     updated: '模型已更新',
@@ -172,6 +176,7 @@ export default {
     ttft: 'TTFT',
     latency: '延迟',
     requests: '请求数',
+    cacheHitRate: '缓存命中率',
     loadFailed: '加载用量数据失败',
   },
 }

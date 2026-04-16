@@ -2,42 +2,51 @@
   <div>
     <h2 style="margin: 0 0 16px;">{{ $t('usage.title') }}</h2>
 
-    <!-- Summary Cards -->
-    <el-row :gutter="16" style="margin-bottom: 20px;">
-      <el-col :span="4">
+    <!-- Summary Cards — Row 1: core metrics -->
+    <el-row :gutter="16" style="margin-bottom: 12px;">
+      <el-col :span="6">
         <el-card shadow="hover">
           <div class="stat-label">{{ $t('usage.totalRequests') }}</div>
           <div class="stat-value">{{ summary.total_requests?.toLocaleString() || 0 }}</div>
         </el-card>
       </el-col>
-      <el-col :span="4">
+      <el-col :span="6">
         <el-card shadow="hover">
           <div class="stat-label">{{ $t('usage.inputTokens') }}</div>
           <div class="stat-value">{{ summary.total_input_tokens?.toLocaleString() || 0 }}</div>
         </el-card>
       </el-col>
-      <el-col :span="4">
+      <el-col :span="6">
         <el-card shadow="hover">
           <div class="stat-label">{{ $t('usage.outputTokens') }}</div>
           <div class="stat-value">{{ summary.total_output_tokens?.toLocaleString() || 0 }}</div>
         </el-card>
       </el-col>
-      <el-col :span="4">
+      <el-col :span="6">
+        <el-card shadow="hover">
+          <div class="stat-label">{{ $t('usage.totalCredits') }}</div>
+          <div class="stat-value">{{ summary.total_credits?.toLocaleString() || 0 }}</div>
+        </el-card>
+      </el-col>
+    </el-row>
+    <!-- Summary Cards — Row 2: cache metrics -->
+    <el-row :gutter="16" style="margin-bottom: 20px;">
+      <el-col :span="8">
         <el-card shadow="hover">
           <div class="stat-label">{{ $t('usage.cacheWrite') }}</div>
           <div class="stat-value">{{ summary.total_cache_write_tokens?.toLocaleString() || 0 }}</div>
         </el-card>
       </el-col>
-      <el-col :span="4">
+      <el-col :span="8">
         <el-card shadow="hover">
           <div class="stat-label">{{ $t('usage.cacheRead') }}</div>
           <div class="stat-value">{{ summary.total_cache_read_tokens?.toLocaleString() || 0 }}</div>
         </el-card>
       </el-col>
-      <el-col :span="4">
+      <el-col :span="8">
         <el-card shadow="hover">
-          <div class="stat-label">{{ $t('usage.totalCredits') }}</div>
-          <div class="stat-value">{{ summary.total_credits?.toLocaleString() || 0 }}</div>
+          <div class="stat-label">{{ $t('usage.cacheHitRate') }}</div>
+          <div class="stat-value">{{ cacheHitRate }}%</div>
         </el-card>
       </el-col>
     </el-row>
@@ -182,6 +191,8 @@ interface TrendPoint {
   requests: number
   input_tokens: number
   output_tokens: number
+  cache_write_tokens: number
+  cache_read_tokens: number
   credits: number
 }
 
@@ -191,6 +202,8 @@ interface GroupedUsage {
   requests: number
   input_tokens: number
   output_tokens: number
+  cache_write_tokens: number
+  cache_read_tokens: number
   credits: number
 }
 
@@ -207,6 +220,13 @@ const filter = ref({
   api_key_id: '',
 })
 
+const cacheHitRate = computed(() => {
+  const read = summary.value.total_cache_read_tokens || 0
+  const write = summary.value.total_cache_write_tokens || 0
+  const total = read + write
+  return total > 0 ? (read / total * 100).toFixed(1) : '0.0'
+})
+
 function buildQuery() {
   const q: any = {}
   if (filter.value.api_key_id) q.api_key_id = filter.value.api_key_id
@@ -219,12 +239,13 @@ function buildQuery() {
 
 const trendOption = computed(() => ({
   tooltip: { trigger: 'axis' },
-  legend: { data: [t('usage.requests'), t('usage.credits')] },
-  grid: { left: 60, right: 40, bottom: 30, top: 40 },
+  legend: { data: [t('usage.requests'), t('usage.credits'), t('usage.cacheHitRate')] },
+  grid: { left: 60, right: 100, bottom: 30, top: 40 },
   xAxis: { type: 'category', data: trendData.value.map((p) => p.date) },
   yAxis: [
     { type: 'value', name: t('usage.requests'), position: 'left' },
     { type: 'value', name: t('usage.credits'), position: 'right' },
+    { type: 'value', name: t('usage.cacheHitRate'), position: 'right', offset: 50, min: 0, max: 100, axisLabel: { formatter: '{value}%' } },
   ],
   series: [
     {
@@ -239,6 +260,17 @@ const trendOption = computed(() => ({
       smooth: true,
       yAxisIndex: 1,
       data: trendData.value.map((p) => p.credits),
+    },
+    {
+      name: t('usage.cacheHitRate'),
+      type: 'line',
+      smooth: true,
+      yAxisIndex: 2,
+      lineStyle: { type: 'dashed' },
+      data: trendData.value.map((p) => {
+        const total = (p.cache_read_tokens || 0) + (p.cache_write_tokens || 0)
+        return total > 0 ? Number(((p.cache_read_tokens || 0) / total * 100).toFixed(1)) : 0
+      }),
     },
   ],
 }))

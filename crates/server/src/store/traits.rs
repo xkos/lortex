@@ -35,6 +35,8 @@ pub struct TrendPoint {
     pub requests: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub cache_read_tokens: u64,
     pub credits: i64,
 }
 
@@ -48,6 +50,8 @@ pub struct GroupedUsage {
     pub requests: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub cache_read_tokens: u64,
     pub credits: i64,
 }
 

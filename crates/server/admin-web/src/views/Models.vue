@@ -126,6 +126,18 @@
           <span style="margin-left: 8px; color: #909399;">{{ $t('models.unlimitedHint') }}</span>
         </el-form-item>
 
+        <el-divider>{{ $t('models.extraHeaders') }}</el-divider>
+        <div v-for="(h, idx) in headerList" :key="idx" style="display: flex; gap: 8px; margin-bottom: 8px; padding: 0 20px;">
+          <el-input v-model="h.key" :placeholder="$t('models.headerKey')" style="flex: 1;" />
+          <el-input v-model="h.value" :placeholder="$t('models.headerValue')" style="flex: 1;" />
+          <el-button type="danger" :icon="Delete" circle size="small" @click="headerList.splice(idx, 1)" />
+        </div>
+        <el-form-item>
+          <el-button @click="headerList.push({ key: '', value: '' })">
+            <el-icon><Plus /></el-icon> {{ $t('models.addHeader') }}
+          </el-button>
+        </el-form-item>
+
         <el-divider>{{ $t('common.status') }}</el-divider>
         <el-form-item :label="$t('common.enabled')">
           <el-switch v-model="form.enabled" />
@@ -161,6 +173,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Delete } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import api from '../api'
 
@@ -173,6 +186,7 @@ const dialogVisible = ref(false)
 const isEdit = ref(false)
 const saving = ref(false)
 const aliasesStr = ref('')
+const headerList = ref<{ key: string; value: string }[]>([])
 
 const emptyForm = () => ({
   provider_id: '',
@@ -198,6 +212,7 @@ const emptyForm = () => ({
   cache_read_multiplier: 0,
   rpm_limit: 0,
   tpm_limit: 0,
+  extra_headers: {} as Record<string, string>,
   enabled: true,
 })
 const form = ref(emptyForm())
@@ -225,6 +240,7 @@ function showCreate() {
   isEdit.value = false
   form.value = emptyForm()
   aliasesStr.value = ''
+  headerList.value = []
   dialogVisible.value = true
 }
 
@@ -232,16 +248,23 @@ function showEdit(row: any) {
   isEdit.value = true
   form.value = { ...row }
   aliasesStr.value = (row.aliases || []).join(', ')
+  const headers = row.extra_headers || {}
+  headerList.value = Object.entries(headers).map(([key, value]) => ({ key, value: value as string }))
   dialogVisible.value = true
 }
 
 async function handleSave() {
   saving.value = true
+  const extraHeaders: Record<string, string> = {}
+  for (const h of headerList.value) {
+    if (h.key.trim()) extraHeaders[h.key.trim()] = h.value
+  }
   const payload = {
     ...form.value,
     aliases: aliasesStr.value ? aliasesStr.value.split(',').map(s => s.trim()).filter(Boolean) : [],
     cache_write_multiplier: form.value.cache_write_multiplier || null,
     cache_read_multiplier: form.value.cache_read_multiplier || null,
+    extra_headers: Object.keys(extraHeaders).length > 0 ? extraHeaders : null,
   }
   try {
     if (isEdit.value) {

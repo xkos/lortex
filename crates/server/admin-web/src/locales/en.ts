@@ -100,6 +100,10 @@ export default {
     rpmLimit: 'RPM Limit',
     tpmLimit: 'TPM Limit',
     unlimitedHint: '0 = unlimited',
+    extraHeaders: 'Custom Headers',
+    headerKey: 'Key',
+    headerValue: 'Value',
+    addHeader: 'Add Header',
     loadFailed: 'Failed to load models',
     created: 'Model created',
     updated: 'Model updated',
@@ -172,6 +176,7 @@ export default {
     ttft: 'TTFT',
     latency: 'Latency',
     requests: 'Requests',
+    cacheHitRate: 'Cache Hit Rate',
     loadFailed: 'Failed to load usage data',
   },
 }

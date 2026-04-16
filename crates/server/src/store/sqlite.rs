@@ -401,11 +401,15 @@ impl ProxyStore for SqliteStore {
                 requests: 0,
                 input_tokens: 0,
                 output_tokens: 0,
+                cache_write_tokens: 0,
+                cache_read_tokens: 0,
                 credits: 0,
             });
             point.requests += 1;
             point.input_tokens += r.input_tokens as u64;
             point.output_tokens += r.output_tokens as u64;
+            point.cache_write_tokens += r.cache_write_tokens as u64;
+            point.cache_read_tokens += r.cache_read_tokens as u64;
             point.credits += r.credits_consumed;
         }
 
@@ -431,11 +435,15 @@ impl ProxyStore for SqliteStore {
                 requests: 0,
                 input_tokens: 0,
                 output_tokens: 0,
+                cache_write_tokens: 0,
+                cache_read_tokens: 0,
                 credits: 0,
             });
             entry.requests += 1;
             entry.input_tokens += r.input_tokens as u64;
             entry.output_tokens += r.output_tokens as u64;
+            entry.cache_write_tokens += r.cache_write_tokens as u64;
+            entry.cache_read_tokens += r.cache_read_tokens as u64;
             entry.credits += r.credits_consumed;
         }
 
@@ -465,11 +473,15 @@ impl ProxyStore for SqliteStore {
                         requests: 0,
                         input_tokens: 0,
                         output_tokens: 0,
+                        cache_write_tokens: 0,
+                        cache_read_tokens: 0,
                         credits: 0,
                     });
             entry.requests += 1;
             entry.input_tokens += r.input_tokens as u64;
             entry.output_tokens += r.output_tokens as u64;
+            entry.cache_write_tokens += r.cache_write_tokens as u64;
+            entry.cache_read_tokens += r.cache_read_tokens as u64;
             entry.credits += r.credits_consumed;
         }
 
