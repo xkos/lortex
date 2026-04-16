@@ -11,7 +11,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 ## 当前迭代
 
-- 当前活跃：无（011-model-rate-limiting 已完成归档）
+- 当前活跃：无（012-embeddings-endpoint 已验收）
 
 ---
 
@@ -19,7 +19,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 | 模块 | 状态 | 测试覆盖 |
 |------|------|---------|
-| core | ✅ 可用 | 71 tests |
+| core | ✅ 可用 | 75 tests |
 | executor | ✅ 可用 | 13 tests |
 | providers | ✅ 可用（extra_headers + cache token） | 14 tests |
 | protocols | 🔨 部分 | 0 tests |
@@ -29,7 +29,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 | memory | ✅ 可用 | 24 tests |
 | macros | ✅ 可用 | 0 tests |
 | router | ✅ 可用 | 40 tests |
-| server | ✅ 可用 | 118 tests |
+| server | ✅ 可用 | 122 tests |
 | admin-web | ✅ 可用 | — (前端) |
 
 ---
@@ -40,6 +40,7 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 |------|:---:|:---:|
 | `/v1/chat/completions` (OpenAI) | ✅ | ✅ |
 | `/v1/messages` (Anthropic) | ✅ | ✅ |
+| `/v1/embeddings` (OpenAI) | ✅ | — |
 | `/v1/models` | ✅ | — |
 | Admin API `/admin/api/v1/*` | ✅ | — |
 | Admin Web `/admin/web/*` | ✅ | — |
@@ -72,7 +73,5 @@ Phase 2 进行中（异构模型编排 + Proxy 服务）
 
 ## 下一步建议
 
-1. /v1/embeddings 端点实现
-2. Streaming retry（mid-stream fallback）
-3. 多租户隔离
-4. protocols 模块测试（当前 0 tests）
+1. Streaming retry（mid-stream fallback）
+3. protocols 模块测试（当前 0 tests）
