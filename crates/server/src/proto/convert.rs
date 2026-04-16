@@ -321,6 +321,8 @@ pub fn anthropic_request_to_lortex(req: &MessagesRequest) -> CompletionRequest {
                                 is_error: *is_error,
                             });
                         }
+                        // Thinking blocks 是模型内部推理，不透传给上游
+                        ContentBlock::Thinking { .. } | ContentBlock::RedactedThinking { .. } => {}
                     }
                 }
             }

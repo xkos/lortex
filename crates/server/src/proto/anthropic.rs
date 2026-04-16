@@ -75,6 +75,20 @@ pub enum ContentBlock {
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<Value>,
     },
+    /// Extended thinking block — 原样保留，转换时忽略
+    #[serde(rename = "thinking")]
+    Thinking {
+        thinking: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<Value>,
+    },
+    /// 被裁减的 thinking block（长对话时 Anthropic 会压缩）
+    #[serde(rename = "redacted_thinking")]
+    RedactedThinking {
+        data: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<Value>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
