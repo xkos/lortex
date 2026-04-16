@@ -206,7 +206,16 @@ impl OpenAIProvider {
                             call_id, content, ..
                         } => {
                             tool_call_id = Some(call_id.clone());
-                            text_parts.push(content.to_string());
+                            let text = match content {
+                                Value::String(s) => s.clone(),
+                                Value::Array(blocks) => blocks
+                                    .iter()
+                                    .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                                    .collect::<Vec<_>>()
+                                    .join("\n"),
+                                other => other.to_string(),
+                            };
+                            text_parts.push(text);
                         }
                         ContentPart::Image { url, .. } => {
                             // For vision models
