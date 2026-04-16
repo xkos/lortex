@@ -2,6 +2,7 @@
 
 pub mod admin;
 pub mod chat;
+pub mod embed;
 pub mod messages;
 pub mod models;
 pub mod provider_builder;

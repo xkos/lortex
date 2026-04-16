@@ -739,6 +739,117 @@ impl Provider for OpenAIProvider {
         })
     }
 
+    async fn embed(
+        &self,
+        request: lortex_core::provider::EmbeddingRequest,
+    ) -> Result<lortex_core::provider::EmbeddingResponse, ProviderError> {
+        let url = format!("{}/embeddings", self.base_url);
+
+        let mut body = serde_json::json!({
+            "model": request.model,
+            "input": request.input,
+        });
+
+        if let Some(fmt) = &request.encoding_format {
+            body["encoding_format"] = Value::String(fmt.clone());
+        }
+        if let Some(dims) = request.dimensions {
+            body["dimensions"] = Value::Number(dims.into());
+        }
+
+        let mut req = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json");
+
+        if let Some(org) = &self.organization {
+            req = req.header("OpenAI-Organization", org.as_str());
+        }
+        for (k, v) in &self.extra_headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+
+        let resp = req
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Network(e.to_string()))?;
+
+        let status = resp.status().as_u16();
+        if status == 429 {
+            return Err(ProviderError::RateLimited {
+                retry_after_ms: 1000,
+            });
+        }
+        if status == 401 {
+            return Err(ProviderError::AuthenticationFailed(
+                "Invalid API key".into(),
+            ));
+        }
+
+        let resp_text = resp
+            .text()
+            .await
+            .map_err(|e| ProviderError::InvalidResponse(e.to_string()))?;
+
+        let resp_body: Value = serde_json::from_str(&resp_text).map_err(|e| {
+            ProviderError::InvalidResponse(format!(
+                "Failed to parse JSON: {}. Body starts with: {}",
+                e,
+                resp_text.chars().take(200).collect::<String>()
+            ))
+        })?;
+
+        if status >= 400 {
+            let message = resp_body
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown error")
+                .to_string();
+            return Err(ProviderError::Api { status, message });
+        }
+
+        let data = resp_body
+            .get("data")
+            .and_then(|d| d.as_array())
+            .ok_or_else(|| ProviderError::InvalidResponse("No data in response".into()))?;
+
+        let embeddings: Vec<lortex_core::provider::EmbeddingData> = data
+            .iter()
+            .map(|item| lortex_core::provider::EmbeddingData {
+                index: item.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize,
+                embedding: item.get("embedding").cloned().unwrap_or(Value::Null),
+            })
+            .collect();
+
+        let model = resp_body
+            .get("model")
+            .and_then(|m| m.as_str())
+            .unwrap_or(&request.model)
+            .to_string();
+
+        let usage = resp_body.get("usage");
+        let prompt_tokens = usage
+            .and_then(|u| u.get("prompt_tokens"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        let total_tokens = usage
+            .and_then(|u| u.get("total_tokens"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+
+        Ok(lortex_core::provider::EmbeddingResponse {
+            data: embeddings,
+            model,
+            usage: lortex_core::provider::EmbeddingUsage {
+                prompt_tokens,
+                total_tokens,
+            },
+        })
+    }
+
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             streaming: true,

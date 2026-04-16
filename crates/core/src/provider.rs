@@ -113,6 +113,62 @@ pub enum StreamEvent {
     },
 }
 
+// ============================================================================
+// Embedding types
+// ============================================================================
+
+/// A request to generate embeddings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingRequest {
+    /// The model identifier (e.g., "text-embedding-3-small").
+    pub model: String,
+
+    /// The input texts to embed.
+    pub input: Vec<String>,
+
+    /// Output encoding format: "float" (default) or "base64".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoding_format: Option<String>,
+
+    /// Output vector dimensions (only supported by some models).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dimensions: Option<u32>,
+}
+
+/// A response containing embeddings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingResponse {
+    /// The embedding vectors.
+    pub data: Vec<EmbeddingData>,
+
+    /// The model used.
+    pub model: String,
+
+    /// Token usage.
+    pub usage: EmbeddingUsage,
+}
+
+/// A single embedding vector.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingData {
+    /// The index of the input text this embedding corresponds to.
+    pub index: usize,
+
+    /// The embedding vector (float array) or base64 string.
+    pub embedding: Value,
+}
+
+/// Token usage for an embedding request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingUsage {
+    pub prompt_tokens: u32,
+    pub total_tokens: u32,
+}
+
+// ============================================================================
+// Provider capabilities
+// ============================================================================
+
 /// Capabilities that a provider supports.
 #[derive(Debug, Clone, Default)]
 pub struct ProviderCapabilities {
@@ -142,7 +198,7 @@ pub trait Provider: Send + Sync {
     ) -> Pin<Box<dyn Stream<Item = Result<StreamEvent, ProviderError>> + Send + '_>>;
 
     /// Generate embeddings for the given texts.
-    async fn embed(&self, _texts: &[&str]) -> Result<Vec<Vec<f32>>, ProviderError> {
+    async fn embed(&self, _request: EmbeddingRequest) -> Result<EmbeddingResponse, ProviderError> {
         Err(ProviderError::ModelNotSupported(
             "Embeddings not supported by this provider".into(),
         ))
@@ -298,6 +354,64 @@ mod tests {
         assert!(!caps.vision);
         assert!(!caps.embeddings);
         assert!(!caps.structured_output);
+    }
+
+    #[test]
+    fn embedding_request_serde_roundtrip() {
+        let req = EmbeddingRequest {
+            model: "text-embedding-3-small".into(),
+            input: vec!["hello".into(), "world".into()],
+            encoding_format: Some("float".into()),
+            dimensions: Some(256),
+        };
+        let json_str = serde_json::to_string(&req).unwrap();
+        let back: EmbeddingRequest = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(back.model, "text-embedding-3-small");
+        assert_eq!(back.input.len(), 2);
+        assert_eq!(back.encoding_format.as_deref(), Some("float"));
+        assert_eq!(back.dimensions, Some(256));
+    }
+
+    #[test]
+    fn embedding_request_minimal() {
+        let json_str = r#"{"model":"text-embedding-3-small","input":["test"]}"#;
+        let req: EmbeddingRequest = serde_json::from_str(json_str).unwrap();
+        assert_eq!(req.model, "text-embedding-3-small");
+        assert!(req.encoding_format.is_none());
+        assert!(req.dimensions.is_none());
+    }
+
+    #[test]
+    fn embedding_response_serde_roundtrip() {
+        let resp = EmbeddingResponse {
+            data: vec![EmbeddingData {
+                index: 0,
+                embedding: json!([0.1, 0.2, 0.3]),
+            }],
+            model: "text-embedding-3-small".into(),
+            usage: EmbeddingUsage {
+                prompt_tokens: 5,
+                total_tokens: 5,
+            },
+        };
+        let json_str = serde_json::to_string(&resp).unwrap();
+        let back: EmbeddingResponse = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(back.data.len(), 1);
+        assert_eq!(back.data[0].index, 0);
+        assert_eq!(back.model, "text-embedding-3-small");
+        assert_eq!(back.usage.prompt_tokens, 5);
+        assert_eq!(back.usage.total_tokens, 5);
+    }
+
+    #[test]
+    fn embedding_data_base64_format() {
+        let data = EmbeddingData {
+            index: 0,
+            embedding: json!("AAAAAAAAAIA/AAAAQAAAQEA="),
+        };
+        let json_str = serde_json::to_string(&data).unwrap();
+        let back: EmbeddingData = serde_json::from_str(&json_str).unwrap();
+        assert!(back.embedding.is_string());
     }
 
     #[test]

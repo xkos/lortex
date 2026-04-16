@@ -235,6 +235,64 @@ pub struct ModelObject {
 }
 
 // ============================================================================
+// Embeddings
+// ============================================================================
+
+/// OpenAI embedding request — supports both single string and array input.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingRequest {
+    pub model: String,
+    pub input: EmbeddingInput,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoding_format: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dimensions: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+}
+
+/// Embedding input — single string or array of strings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum EmbeddingInput {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+impl EmbeddingInput {
+    pub fn to_vec(&self) -> Vec<String> {
+        match self {
+            EmbeddingInput::Single(s) => vec![s.clone()],
+            EmbeddingInput::Multiple(v) => v.clone(),
+        }
+    }
+}
+
+/// OpenAI embedding response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingResponse {
+    pub object: String,
+    pub data: Vec<EmbeddingObject>,
+    pub model: String,
+    pub usage: EmbeddingUsage,
+}
+
+/// A single embedding object in the response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingObject {
+    pub object: String,
+    pub index: usize,
+    pub embedding: serde_json::Value,
+}
+
+/// Token usage for embedding requests.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingUsage {
+    pub prompt_tokens: u32,
+    pub total_tokens: u32,
+}
+
+// ============================================================================
 // Error Response
 // ============================================================================
 
@@ -424,6 +482,75 @@ mod tests {
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("gpt-4o"));
+    }
+
+    #[test]
+    fn embedding_request_single_input() {
+        let json = json!({"model": "text-embedding-3-small", "input": "hello"});
+        let req: EmbeddingRequest = serde_json::from_value(json).unwrap();
+        assert_eq!(req.model, "text-embedding-3-small");
+        match req.input {
+            EmbeddingInput::Single(s) => assert_eq!(s, "hello"),
+            _ => panic!("expected Single"),
+        }
+        assert!(req.encoding_format.is_none());
+        assert!(req.dimensions.is_none());
+    }
+
+    #[test]
+    fn embedding_request_multiple_input() {
+        let json = json!({
+            "model": "text-embedding-3-small",
+            "input": ["hello", "world"],
+            "encoding_format": "float",
+            "dimensions": 256
+        });
+        let req: EmbeddingRequest = serde_json::from_value(json).unwrap();
+        match req.input {
+            EmbeddingInput::Multiple(v) => assert_eq!(v, vec!["hello", "world"]),
+            _ => panic!("expected Multiple"),
+        }
+        assert_eq!(req.encoding_format.as_deref(), Some("float"));
+        assert_eq!(req.dimensions, Some(256));
+    }
+
+    #[test]
+    fn embedding_response_serialize() {
+        let resp = EmbeddingResponse {
+            object: "list".into(),
+            data: vec![
+                EmbeddingObject {
+                    object: "embedding".into(),
+                    index: 0,
+                    embedding: json!([0.1, 0.2, 0.3]),
+                },
+                EmbeddingObject {
+                    object: "embedding".into(),
+                    index: 1,
+                    embedding: json!([0.4, 0.5, 0.6]),
+                },
+            ],
+            model: "text-embedding-3-small".into(),
+            usage: EmbeddingUsage {
+                prompt_tokens: 8,
+                total_tokens: 8,
+            },
+        };
+        let json_str = serde_json::to_string(&resp).unwrap();
+        assert!(json_str.contains("\"object\":\"list\""));
+        assert!(json_str.contains("text-embedding-3-small"));
+        let back: EmbeddingResponse = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(back.data.len(), 2);
+        assert_eq!(back.usage.prompt_tokens, 8);
+    }
+
+    #[test]
+    fn embedding_input_to_vec() {
+        let single = EmbeddingInput::Single("hello".into());
+        assert_eq!(single.to_vec(), vec!["hello"]);
+
+        let multi = EmbeddingInput::Multiple(vec!["a".into(), "b".into()]);
+        assert_eq!(multi.to_vec(), vec!["a", "b"]);
     }
 
     #[test]
