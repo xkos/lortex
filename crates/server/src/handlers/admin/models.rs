@@ -8,10 +8,18 @@ use axum::{
     Json,
 };
 use chrono::Utc;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 use crate::models::model::{ApiFormat, Model, ModelType};
 use crate::state::AppState;
+
+fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(|opt| opt.unwrap_or_default())
+}
 
 #[derive(Deserialize)]
 pub struct CreateModelRequest {
@@ -62,7 +70,7 @@ pub struct CreateModelRequest {
     pub image_generation_multiplier: Option<f64>,
     pub tts_multiplier: Option<f64>,
 
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub extra_headers: HashMap<String, String>,
 
     #[serde(default)]

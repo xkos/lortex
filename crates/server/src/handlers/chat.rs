@@ -1,4 +1,5 @@
 //! /v1/chat/completions — OpenAI 兼容对话补全（non-streaming + streaming）
+//! 同格式时走 passthrough（原样转发），异格式走 Lortex 转换
 
 use std::convert::Infallible;
 
@@ -11,11 +12,17 @@ use axum::{
     },
     Json,
 };
+use bytes::Bytes;
 use futures::StreamExt;
+use serde_json::Value;
 
 use lortex_core::error::ProviderError;
 use lortex_core::provider::StreamEvent;
 
+use crate::handlers::passthrough::{
+    self, build_passthrough_config, extract_usage_openai, forward_blocking, forward_stream,
+    prepare_body,
+};
 use crate::handlers::shared::{self, ProxyError};
 use crate::layer::helpers::{record_model_fields, record_usage_fields};
 use crate::models::model::ApiFormat;
@@ -31,23 +38,106 @@ fn to_oai_error(e: ProxyError) -> (StatusCode, Json<ErrorResponse>) {
     (e.status, Json(ErrorResponse::new(e.message, "server_error")))
 }
 
-/// POST /v1/chat/completions — 入口，根据 stream 字段分发
+fn oai_error_response(e: ProxyError) -> Response {
+    tracing::warn!(
+        status = %e.status,
+        endpoint = "/v1/chat/completions",
+        "{}", e.message
+    );
+    let (status, json) = to_oai_error(e);
+    (status, json).into_response()
+}
+
+/// POST /v1/chat/completions — 入口：先解析 model+stream，判断 passthrough 后分发
 pub async fn chat_completions(
     Extension(state): Extension<AppState>,
     Extension(api_key): Extension<ApiKey>,
     headers: axum::http::HeaderMap,
-    Json(req): Json<ChatCompletionRequest>,
+    body: Bytes,
 ) -> Response {
     let client_headers = shared::extract_passthrough_headers(&headers);
-    if req.stream {
-        match chat_completions_stream(state, api_key, client_headers, req).await {
-            Ok(sse) => sse.into_response(),
-            Err((status, json)) => (status, json).into_response(),
+
+    let body_value: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            return oai_error_response(ProxyError {
+                status: StatusCode::BAD_REQUEST,
+                message: format!("Invalid JSON: {e}"),
+            });
+        }
+    };
+
+    let model_name = body_value
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("PROXY_MANAGED");
+    let is_stream = body_value
+        .get("stream")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let target = match shared::resolve_target(&state, &api_key, model_name, &ApiFormat::OpenAI)
+        .await
+    {
+        Ok(t) => t,
+        Err(e) => return oai_error_response(e),
+    };
+
+    if target.passthrough {
+        let config = build_passthrough_config(
+            &target.provider_config,
+            &target.model,
+            &ApiFormat::OpenAI,
+            &client_headers,
+        );
+        let prepared = match prepare_body(&body, &config) {
+            Ok(b) => b,
+            Err(e) => return oai_error_response(e),
+        };
+
+        let upstream_url = config.upstream_url.clone();
+        if is_stream {
+            match passthrough_stream_openai(&state, &api_key, &target.model, config, prepared)
+                .await
+            {
+                Ok(resp) => resp,
+                Err(e) => {
+                    tracing::warn!(
+                        upstream_url = %upstream_url,
+                        provider = %target.model.provider_id,
+                        "Passthrough stream failed"
+                    );
+                    oai_error_response(e)
+                }
+            }
+        } else {
+            match passthrough_blocking_openai(&state, &api_key, &target.model, config, prepared)
+                .await
+            {
+                Ok(resp) => resp,
+                Err(e) => oai_error_response(e),
+            }
         }
     } else {
-        match chat_completions_blocking(state, api_key, client_headers, req).await {
-            Ok(json) => json.into_response(),
-            Err((status, json)) => (status, json).into_response(),
+        let req: ChatCompletionRequest = match serde_json::from_value(body_value) {
+            Ok(r) => r,
+            Err(e) => {
+                return oai_error_response(ProxyError {
+                    status: StatusCode::UNPROCESSABLE_ENTITY,
+                    message: format!("Failed to deserialize the JSON body into the target type: {e}"),
+                });
+            }
+        };
+        if req.stream {
+            match chat_completions_stream(state, api_key, client_headers, req).await {
+                Ok(sse) => sse.into_response(),
+                Err((status, json)) => (status, json).into_response(),
+            }
+        } else {
+            match chat_completions_blocking(state, api_key, client_headers, req).await {
+                Ok(json) => json.into_response(),
+                Err((status, json)) => (status, json).into_response(),
+            }
         }
     }
 }
@@ -338,4 +428,170 @@ async fn chat_completions_stream(
     let full_stream = sse_stream.chain(done_stream);
 
     Ok(Sse::new(full_stream).keep_alive(KeepAlive::default()))
+}
+
+// ============================================================================
+// Passthrough 路径 — OpenAI 同格式透传
+// ============================================================================
+
+async fn passthrough_blocking_openai(
+    state: &AppState,
+    api_key: &ApiKey,
+    model: &crate::models::Model,
+    config: passthrough::PassthroughConfig,
+    body: Vec<u8>,
+) -> Result<Response, ProxyError> {
+    let estimated_chars = body.len() as u64;
+
+    let span = tracing::info_span!(
+        target: "lortex::usage",
+        "proxy_request",
+        api_key_id = %api_key.id,
+        api_key_name = %api_key.name,
+        endpoint = "/v1/chat/completions",
+        stream = false,
+        passthrough = true,
+        estimated_chars,
+        model_id = tracing::field::Empty,
+        provider_id = tracing::field::Empty,
+        vendor_model_name = tracing::field::Empty,
+        input_multiplier = tracing::field::Empty,
+        output_multiplier = tracing::field::Empty,
+        cache_write_multiplier = tracing::field::Empty,
+        cache_read_multiplier = tracing::field::Empty,
+        input_tokens = tracing::field::Empty,
+        output_tokens = tracing::field::Empty,
+        cache_write_tokens = tracing::field::Empty,
+        cache_read_tokens = tracing::field::Empty,
+    );
+    record_model_fields(&span, model);
+    state.rate_limiter.record_model_request(&model.id());
+
+    let (status, resp_bytes) = forward_blocking(&state.http_client, &config, body).await?;
+
+    let _ = if status >= 400 {
+        state
+            .circuit_breaker
+            .record_failure(&model.provider_id)
+            .await
+    } else {
+        state
+            .circuit_breaker
+            .record_success(&model.provider_id)
+            .await
+    };
+
+    if status >= 400 {
+        tracing::warn!(
+            status,
+            endpoint = "/v1/chat/completions",
+            passthrough = true,
+            provider = %model.provider_id,
+            upstream_url = %config.upstream_url,
+            "Upstream error: {}",
+            String::from_utf8_lossy(&resp_bytes).chars().take(500).collect::<String>()
+        );
+    } else if let Ok(resp_value) = serde_json::from_slice::<Value>(&resp_bytes) {
+        if let Some(usage) = extract_usage_openai(&resp_value) {
+            record_usage_fields(&span, &usage);
+        }
+    }
+
+    Ok((
+        axum::http::StatusCode::from_u16(status)
+            .unwrap_or(axum::http::StatusCode::BAD_GATEWAY),
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        resp_bytes,
+    )
+        .into_response())
+}
+
+async fn passthrough_stream_openai(
+    state: &AppState,
+    api_key: &ApiKey,
+    model: &crate::models::Model,
+    config: passthrough::PassthroughConfig,
+    body: Vec<u8>,
+) -> Result<Response, ProxyError> {
+    let estimated_chars = body.len() as u64;
+
+    let span = tracing::info_span!(
+        target: "lortex::usage",
+        "proxy_request",
+        api_key_id = %api_key.id,
+        api_key_name = %api_key.name,
+        endpoint = "/v1/chat/completions",
+        stream = true,
+        passthrough = true,
+        estimated_chars,
+        model_id = tracing::field::Empty,
+        provider_id = tracing::field::Empty,
+        vendor_model_name = tracing::field::Empty,
+        input_multiplier = tracing::field::Empty,
+        output_multiplier = tracing::field::Empty,
+        cache_write_multiplier = tracing::field::Empty,
+        cache_read_multiplier = tracing::field::Empty,
+        input_tokens = tracing::field::Empty,
+        output_tokens = tracing::field::Empty,
+        cache_write_tokens = tracing::field::Empty,
+        cache_read_tokens = tracing::field::Empty,
+    );
+    record_model_fields(&span, model);
+    state.rate_limiter.record_model_request(&model.id());
+
+    let stream_result = forward_stream(&state.http_client, &config, body).await;
+
+    match stream_result {
+        Err(e) => {
+            let _ = state
+                .circuit_breaker
+                .record_failure(&model.provider_id)
+                .await;
+            tracing::warn!(
+                status = %e.status,
+                endpoint = "/v1/chat/completions",
+                passthrough = true,
+                provider = %model.provider_id,
+                upstream_url = %config.upstream_url,
+                "Upstream stream error: {}",
+                e.message.chars().take(500).collect::<String>()
+            );
+            Ok((
+                e.status,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                axum::body::Bytes::from(e.message),
+            )
+                .into_response())
+        }
+        Ok((_status, sniffer_stream)) => {
+            let _ = state
+                .circuit_breaker
+                .record_success(&model.provider_id)
+                .await;
+
+            let usage_handle = sniffer_stream.usage_handle();
+
+            let byte_stream = sniffer_stream.map(move |chunk| {
+                chunk.map(axum::body::Bytes::from)
+            });
+
+            let body = axum::body::Body::from_stream(byte_stream);
+
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                if let Ok(guard) = usage_handle.lock() {
+                    if let Some(ref usage) = *guard {
+                        record_usage_fields(&span, usage);
+                    }
+                }
+            });
+
+            Ok(Response::builder()
+                .status(axum::http::StatusCode::OK)
+                .header("Content-Type", "text/event-stream")
+                .header("Cache-Control", "no-cache")
+                .body(body)
+                .unwrap())
+        }
+    }
 }

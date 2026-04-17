@@ -62,7 +62,7 @@ impl AnthropicProvider {
 
     /// 在已构建的请求 body JSON 上注入 cache_control breakpoint。
     /// 在 body 构建完成、HTTP 发送前调用。
-    fn inject_cache_breakpoints(body: &mut Value, strategy: CacheStrategy) {
+    pub fn inject_cache_breakpoints(body: &mut Value, strategy: CacheStrategy) {
         if strategy == CacheStrategy::None {
             return;
         }

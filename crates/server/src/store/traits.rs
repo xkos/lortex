@@ -104,6 +104,7 @@ pub trait ProxyStore: Send + Sync {
         &self,
         provider_id: &str,
     ) -> Result<Option<ProviderHealthStatus>, StoreError>;
+    async fn list_health_statuses(&self) -> Result<Vec<ProviderHealthStatus>, StoreError>;
     async fn upsert_health_status(
         &self,
         status: &ProviderHealthStatus,

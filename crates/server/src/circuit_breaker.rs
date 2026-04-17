@@ -92,6 +92,12 @@ impl CircuitBreaker {
         self.store.upsert_health_status(&status).await
     }
 
+    /// 强制重置熔断器（管理员手动恢复）
+    pub async fn force_reset(&self, provider_id: &str) -> Result<(), StoreError> {
+        let status = ProviderHealthStatus::new(provider_id);
+        self.store.upsert_health_status(&status).await
+    }
+
     /// 记录一次失败请求
     pub async fn record_failure(&self, provider_id: &str) -> Result<(), StoreError> {
         let mut status = self

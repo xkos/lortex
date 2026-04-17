@@ -25,6 +25,31 @@
           </el-tag>
         </template>
       </el-table-column>
+      <el-table-column :label="$t('providers.health')" width="220">
+        <template #default="{ row }">
+          <template v-if="getHealth(row.id)?.circuit_state === 'open'">
+            <el-tag type="danger" size="small">
+              {{ $t('providers.circuitOpen') }} ({{ $t('providers.failures', { n: getHealth(row.id)?.consecutive_failures }) }})
+            </el-tag>
+            <el-popconfirm :title="$t('providers.confirmReset')" @confirm="handleReset(row.id)">
+              <template #reference>
+                <el-button size="small" type="warning" style="margin-left: 8px;">{{ $t('providers.resetCircuit') }}</el-button>
+              </template>
+            </el-popconfirm>
+          </template>
+          <template v-else-if="getHealth(row.id)?.circuit_state === 'half_open'">
+            <el-tag type="warning" size="small">{{ $t('providers.halfOpen') }}</el-tag>
+            <el-popconfirm :title="$t('providers.confirmReset')" @confirm="handleReset(row.id)">
+              <template #reference>
+                <el-button size="small" type="warning" style="margin-left: 8px;">{{ $t('providers.resetCircuit') }}</el-button>
+              </template>
+            </el-popconfirm>
+          </template>
+          <template v-else>
+            <el-tag type="success" size="small">{{ $t('providers.healthy') }}</el-tag>
+          </template>
+        </template>
+      </el-table-column>
       <el-table-column :label="$t('common.actions')" width="180">
         <template #default="{ row }">
           <el-button size="small" @click="showEdit(row)">{{ $t('common.edit') }}</el-button>
@@ -57,7 +82,7 @@
           <el-input v-model="form.api_key" type="password" show-password />
         </el-form-item>
         <el-form-item :label="$t('providers.baseUrl')">
-          <el-input v-model="form.base_url" placeholder="https://api.openai.com/v1" />
+          <el-input v-model="form.base_url" placeholder="https://api.openai.com" />
         </el-form-item>
         <el-form-item :label="$t('providers.website')">
           <el-input v-model="form.website_url" placeholder="https://example.com" />
@@ -92,16 +117,50 @@ interface Provider {
   enabled: boolean
 }
 
+interface HealthStatus {
+  provider_id: string
+  circuit_state: string
+  consecutive_failures: number
+}
+
 const providers = ref<Provider[]>([])
+const healthMap = ref<Map<string, HealthStatus>>(new Map())
 const loading = ref(false)
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const saving = ref(false)
 
 const emptyForm = (): Provider => ({
-  id: '', vendor: 'openai', display_name: '', api_key: '', base_url: 'https://api.openai.com/v1', website_url: '', enabled: true,
+  id: '', vendor: 'openai', display_name: '', api_key: '', base_url: 'https://api.openai.com', website_url: '', enabled: true,
 })
 const form = ref<Provider>(emptyForm())
+
+function getHealth(providerId: string): HealthStatus | undefined {
+  return healthMap.value.get(providerId)
+}
+
+async function fetchHealthStatuses() {
+  try {
+    const { data } = await api.get('/health')
+    const map = new Map<string, HealthStatus>()
+    for (const s of data) {
+      map.set(s.provider_id, s)
+    }
+    healthMap.value = map
+  } catch {
+    // best-effort
+  }
+}
+
+async function handleReset(providerId: string) {
+  try {
+    await api.post(`/health/${providerId}/reset`)
+    ElMessage.success(t('providers.resetSuccess'))
+    await fetchHealthStatuses()
+  } catch {
+    ElMessage.error(t('providers.resetFailed'))
+  }
+}
 
 async function fetchProviders() {
   loading.value = true
@@ -156,5 +215,8 @@ async function handleDelete(id: string) {
   }
 }
 
-onMounted(fetchProviders)
+onMounted(() => {
+  fetchProviders()
+  fetchHealthStatuses()
+})
 </script>

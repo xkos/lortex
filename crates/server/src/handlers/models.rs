@@ -22,7 +22,7 @@ pub async fn list_models(
         })?;
 
     // 过滤出 API Key 模型组中的模型
-    let model_objects: Vec<ModelObject> = all_models
+    let mut model_objects: Vec<ModelObject> = all_models
         .iter()
         .filter(|m| {
             m.enabled
@@ -38,6 +38,38 @@ pub async fn list_models(
             owned_by: m.provider_id.clone(),
         })
         .collect();
+
+    if !api_key.default_model.is_empty() {
+        model_objects.insert(
+            0,
+            ModelObject {
+                id: "PROXY_MANAGED".into(),
+                object: "model".into(),
+                created: chrono::Utc::now().timestamp(),
+                owned_by: "proxy".into(),
+            },
+        );
+    }
+
+    // model_map 中的客户端别名也加入列表，使客户端验证通过
+    let existing_ids: std::collections::HashSet<String> =
+        model_objects.iter().map(|m| m.id.clone()).collect();
+    for (alias, target) in &api_key.model_map {
+        if existing_ids.contains(alias) {
+            continue;
+        }
+        let owned_by = all_models
+            .iter()
+            .find(|m| m.id() == *target || m.matches(target))
+            .map(|m| m.provider_id.clone())
+            .unwrap_or_else(|| "proxy".into());
+        model_objects.push(ModelObject {
+            id: alias.clone(),
+            object: "model".into(),
+            created: chrono::Utc::now().timestamp(),
+            owned_by,
+        });
+    }
 
     Ok(Json(ModelsResponse {
         object: "list".into(),

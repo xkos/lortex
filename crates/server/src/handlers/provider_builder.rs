@@ -13,7 +13,7 @@ use crate::models::provider::Provider as ProviderConfig;
 /// 合并 model extra_headers 与客户端 headers（客户端优先）
 ///
 /// 对于 `anthropic-beta` 等逗号分隔的 header，合并值并去重。
-fn merge_headers(
+pub(crate) fn merge_headers(
     model_headers: &HashMap<String, String>,
     client_headers: &HashMap<String, String>,
 ) -> HashMap<String, String> {
@@ -70,11 +70,13 @@ pub fn build_llm_provider(
         ApiFormat::OpenAI
     };
 
+    let base = format!("{}/v1", provider_config.base_url.trim_end_matches('/'));
+
     match actual_format {
         ApiFormat::OpenAI => {
             Arc::new(
                 lortex_providers::openai::OpenAIProvider::new(&provider_config.api_key)
-                    .with_base_url(&provider_config.base_url)
+                    .with_base_url(&base)
                     .with_extra_headers(headers)
                     .with_cache_strategy(cache_strategy),
             )
@@ -82,7 +84,7 @@ pub fn build_llm_provider(
         ApiFormat::Anthropic => {
             Arc::new(
                 lortex_providers::anthropic::AnthropicProvider::new(&provider_config.api_key)
-                    .with_base_url(&provider_config.base_url)
+                    .with_base_url(&base)
                     .with_extra_headers(headers)
                     .with_cache_strategy(cache_strategy),
             )

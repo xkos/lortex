@@ -67,7 +67,7 @@ impl OpenAIProvider {
     }
 
     /// 在已构建的请求 body JSON 上注入 cache_control breakpoint。
-    fn inject_cache_breakpoints(body: &mut Value, strategy: CacheStrategy) {
+    pub fn inject_cache_breakpoints(body: &mut Value, strategy: CacheStrategy) {
         if strategy == CacheStrategy::None {
             return;
         }

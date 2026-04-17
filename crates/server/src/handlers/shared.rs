@@ -10,6 +10,7 @@ use lortex_core::provider::{CompletionRequest, CompletionResponse, Provider};
 
 use crate::handlers::provider_builder::build_llm_provider;
 use crate::models::model::ApiFormat;
+use crate::models::provider::Provider as ProviderConfig;
 use crate::models::{ApiKey, Model};
 use crate::state::AppState;
 
@@ -18,6 +19,7 @@ pub fn extract_passthrough_headers(headers: &axum::http::HeaderMap) -> HashMap<S
     // 透传的 header 前缀/名称列表
     const PASSTHROUGH_HEADERS: &[&str] = &[
         "anthropic-beta",
+        "anthropic-version",
     ];
 
     let mut result = HashMap::new();
@@ -86,6 +88,86 @@ pub async fn resolve_model(
     }
 
     Ok(model)
+}
+
+/// 解析结果，包含是否可走 passthrough 的判断
+pub(crate) struct ResolvedTarget {
+    pub model: Model,
+    pub provider_config: ProviderConfig,
+    pub passthrough: bool,
+}
+
+/// 解析模型并判断是否可走 passthrough 路径
+///
+/// passthrough = model.api_formats 包含 preferred_format
+pub(crate) async fn resolve_target(
+    state: &AppState,
+    api_key: &ApiKey,
+    model_name: &str,
+    preferred_format: &ApiFormat,
+) -> Result<ResolvedTarget, ProxyError> {
+    let model = resolve_model(state, api_key, model_name).await?;
+
+    let available = state
+        .circuit_breaker
+        .is_available(&model.provider_id)
+        .await
+        .unwrap_or(true);
+    if !available {
+        return Err(ProxyError::unavailable(format!(
+            "Provider '{}' circuit-broken",
+            model.provider_id
+        )));
+    }
+
+    if model.rpm_limit > 0 {
+        if state
+            .rate_limiter
+            .check_model_rpm(&model.id(), model.rpm_limit)
+            .is_err()
+        {
+            return Err(ProxyError::unavailable(format!(
+                "Model '{}' RPM limit exceeded",
+                model.id()
+            )));
+        }
+    }
+    if model.tpm_limit > 0 {
+        if state
+            .rate_limiter
+            .check_model_tpm(&model.id(), model.tpm_limit)
+            .is_err()
+        {
+            return Err(ProxyError::unavailable(format!(
+                "Model '{}' TPM limit exceeded",
+                model.id()
+            )));
+        }
+    }
+
+    let provider_config = state
+        .store
+        .get_provider(&model.provider_id)
+        .await
+        .map_err(|_| ProxyError::internal("Store error"))?
+        .ok_or_else(|| {
+            ProxyError::internal(format!("Provider '{}' not found", model.provider_id))
+        })?;
+
+    if !provider_config.enabled {
+        return Err(ProxyError::unavailable(format!(
+            "Provider '{}' is disabled",
+            model.provider_id
+        )));
+    }
+
+    let passthrough = model.api_formats.contains(preferred_format);
+
+    Ok(ResolvedTarget {
+        model,
+        provider_config,
+        passthrough,
+    })
 }
 
 /// 根据 Provider 配置构建 lortex Provider 实例

@@ -12,6 +12,7 @@ pub struct AppState {
     pub store: Arc<dyn ProxyStore>,
     pub circuit_breaker: Arc<CircuitBreaker>,
     pub rate_limiter: Arc<RateLimiter>,
+    pub http_client: reqwest::Client,
 }
 
 impl AppState {
@@ -30,6 +31,7 @@ impl AppState {
             store,
             circuit_breaker: Arc::new(cb),
             rate_limiter,
+            http_client: reqwest::Client::new(),
         }
     }
 }

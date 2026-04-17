@@ -509,6 +509,16 @@ impl ProxyStore for SqliteStore {
         }
     }
 
+    async fn list_health_statuses(&self) -> Result<Vec<ProviderHealthStatus>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT data FROM entities WHERE kind = 'health_status'",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.iter().map(|r| parse_json(r)).collect()
+    }
+
     async fn upsert_health_status(
         &self,
         status: &ProviderHealthStatus,

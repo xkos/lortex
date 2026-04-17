@@ -58,7 +58,7 @@ async fn seed_test_data(app: &axum::Router) -> String {
         .oneshot(admin_request(
             "POST",
             "/admin/api/v1/providers",
-            Some(r#"{"id":"test-openai","vendor":"openai","display_name":"Test OpenAI","api_key":"sk-fake","base_url":"https://api.openai.com/v1"}"#),
+            Some(r#"{"id":"test-openai","vendor":"openai","display_name":"Test OpenAI","api_key":"sk-fake","base_url":"https://api.openai.com"}"#),
         ))
         .await
         .unwrap();
@@ -184,9 +184,10 @@ async fn models_returns_key_model_group() {
     let models: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(models["object"], "list");
     let data = models["data"].as_array().unwrap();
-    assert_eq!(data.len(), 1);
-    assert_eq!(data[0]["id"], "test-openai/gpt-4o");
-    assert_eq!(data[0]["owned_by"], "test-openai");
+    assert_eq!(data.len(), 2);
+    assert_eq!(data[0]["id"], "PROXY_MANAGED");
+    assert_eq!(data[1]["id"], "test-openai/gpt-4o");
+    assert_eq!(data[1]["owned_by"], "test-openai");
 }
 
 #[tokio::test]

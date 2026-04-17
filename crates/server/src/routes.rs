@@ -28,6 +28,8 @@ pub fn admin_routes(state: AppState, admin_key: String) -> Router {
         .route("/usage/trend", post(admin::usage::trend))
         .route("/usage/by-model", post(admin::usage::by_model))
         .route("/usage/by-key", post(admin::usage::by_key))
+        .route("/health", get(admin::health::list))
+        .route("/health/{provider_id}/reset", post(admin::health::reset))
         .layer(middleware::from_fn(admin_auth))
         .layer(axum::Extension(AdminKey(admin_key)))
         .with_state(state)
