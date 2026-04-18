@@ -57,19 +57,6 @@ pub struct CreateModelRequest {
     #[serde(default = "default_cache_strategy")]
     pub cache_strategy: String,
 
-    #[serde(default = "default_one")]
-    pub input_multiplier: f64,
-    #[serde(default = "default_one")]
-    pub output_multiplier: f64,
-    pub cache_write_multiplier: Option<f64>,
-    pub cache_read_multiplier: Option<f64>,
-
-    pub image_input_multiplier: Option<f64>,
-    pub audio_input_multiplier: Option<f64>,
-    pub video_input_multiplier: Option<f64>,
-    pub image_generation_multiplier: Option<f64>,
-    pub tts_multiplier: Option<f64>,
-
     #[serde(default, deserialize_with = "null_as_default")]
     pub extra_headers: HashMap<String, String>,
 
@@ -83,7 +70,6 @@ pub struct CreateModelRequest {
 }
 
 fn default_true() -> bool { true }
-fn default_one() -> f64 { 1.0 }
 fn default_chat() -> String { "chat".into() }
 fn default_api_formats() -> Vec<String> { vec!["openai".into()] }
 fn default_cache_strategy() -> String { "full".into() }
@@ -128,15 +114,6 @@ pub async fn create(
         context_window: req.context_window,
         cache_enabled: req.cache_enabled,
         cache_strategy: req.cache_strategy,
-        input_multiplier: req.input_multiplier,
-        output_multiplier: req.output_multiplier,
-        cache_write_multiplier: req.cache_write_multiplier,
-        cache_read_multiplier: req.cache_read_multiplier,
-        image_input_multiplier: req.image_input_multiplier,
-        audio_input_multiplier: req.audio_input_multiplier,
-        video_input_multiplier: req.video_input_multiplier,
-        image_generation_multiplier: req.image_generation_multiplier,
-        tts_multiplier: req.tts_multiplier,
         extra_headers: req.extra_headers,
         rpm_limit: req.rpm_limit,
         tpm_limit: req.tpm_limit,
@@ -164,15 +141,6 @@ pub struct UpdateModelRequest {
     pub context_window: Option<u32>,
     pub cache_enabled: Option<bool>,
     pub cache_strategy: Option<String>,
-    pub input_multiplier: Option<f64>,
-    pub output_multiplier: Option<f64>,
-    pub cache_write_multiplier: Option<Option<f64>>,
-    pub cache_read_multiplier: Option<Option<f64>>,
-    pub image_input_multiplier: Option<Option<f64>>,
-    pub audio_input_multiplier: Option<Option<f64>>,
-    pub video_input_multiplier: Option<Option<f64>>,
-    pub image_generation_multiplier: Option<Option<f64>>,
-    pub tts_multiplier: Option<Option<f64>>,
     pub extra_headers: Option<HashMap<String, String>>,
     pub rpm_limit: Option<u32>,
     pub tpm_limit: Option<u32>,
@@ -202,15 +170,6 @@ pub async fn update(
     if let Some(v) = req.context_window { model.context_window = v; }
     if let Some(v) = req.cache_enabled { model.cache_enabled = v; }
     if let Some(v) = req.cache_strategy { model.cache_strategy = v; }
-    if let Some(v) = req.input_multiplier { model.input_multiplier = v; }
-    if let Some(v) = req.output_multiplier { model.output_multiplier = v; }
-    if let Some(v) = req.cache_write_multiplier { model.cache_write_multiplier = v; }
-    if let Some(v) = req.cache_read_multiplier { model.cache_read_multiplier = v; }
-    if let Some(v) = req.image_input_multiplier { model.image_input_multiplier = v; }
-    if let Some(v) = req.audio_input_multiplier { model.audio_input_multiplier = v; }
-    if let Some(v) = req.video_input_multiplier { model.video_input_multiplier = v; }
-    if let Some(v) = req.image_generation_multiplier { model.image_generation_multiplier = v; }
-    if let Some(v) = req.tts_multiplier { model.tts_multiplier = v; }
     if let Some(v) = req.extra_headers { model.extra_headers = v; }
     if let Some(v) = req.rpm_limit { model.rpm_limit = v; }
     if let Some(v) = req.tpm_limit { model.tpm_limit = v; }

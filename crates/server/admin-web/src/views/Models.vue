@@ -20,11 +20,6 @@
           <el-tag v-for="f in row.api_formats" :key="f" size="small" style="margin: 2px;">{{ f }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column :label="$t('models.multiplier')" width="160">
-        <template #default="{ row }">
-          {{ $t('models.inOut', { input: row.input_multiplier, output: row.output_multiplier }) }}
-        </template>
-      </el-table-column>
       <el-table-column :label="$t('models.capabilities')" min-width="200">
         <template #default="{ row }">
           <el-tag v-if="row.supports_tools" size="small" style="margin: 2px;">{{ $t('models.tools') }}</el-tag>
@@ -100,20 +95,6 @@
         </el-form-item>
         <el-form-item :label="$t('models.contextWindow')">
           <el-input-number v-model="form.context_window" :min="0" :step="1000" />
-        </el-form-item>
-
-        <el-divider>{{ $t('models.pricing') }}</el-divider>
-        <el-form-item :label="$t('models.input')">
-          <el-input-number v-model="form.input_multiplier" :min="0" :precision="2" :step="0.1" />
-        </el-form-item>
-        <el-form-item :label="$t('models.output')">
-          <el-input-number v-model="form.output_multiplier" :min="0" :precision="2" :step="0.1" />
-        </el-form-item>
-        <el-form-item :label="$t('models.cacheWrite')">
-          <el-input-number v-model="form.cache_write_multiplier" :min="0" :precision="2" :step="0.1" />
-        </el-form-item>
-        <el-form-item :label="$t('models.cacheRead')">
-          <el-input-number v-model="form.cache_read_multiplier" :min="0" :precision="2" :step="0.1" />
         </el-form-item>
 
         <el-divider>{{ $t('models.rateLimits') }}</el-divider>
@@ -206,10 +187,6 @@ const emptyForm = () => ({
   context_window: 128000,
   cache_enabled: true,
   cache_strategy: 'full',
-  input_multiplier: 1.0,
-  output_multiplier: 1.0,
-  cache_write_multiplier: 0,
-  cache_read_multiplier: 0,
   rpm_limit: 0,
   tpm_limit: 0,
   extra_headers: {} as Record<string, string>,
@@ -262,8 +239,6 @@ async function handleSave() {
   const payload = {
     ...form.value,
     aliases: aliasesStr.value ? aliasesStr.value.split(',').map(s => s.trim()).filter(Boolean) : [],
-    cache_write_multiplier: form.value.cache_write_multiplier || null,
-    cache_read_multiplier: form.value.cache_read_multiplier || null,
     extra_headers: Object.keys(extraHeaders).length > 0 ? extraHeaders : null,
   }
   try {

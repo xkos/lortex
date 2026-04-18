@@ -21,11 +21,6 @@ pub(crate) struct SpanData {
     pub model_id: Option<String>,
     pub provider_id: Option<String>,
     pub vendor_model_name: Option<String>,
-    pub input_multiplier: Option<f64>,
-    pub output_multiplier: Option<f64>,
-    pub cache_write_multiplier: Option<f64>,
-    pub cache_read_multiplier: Option<f64>,
-
     // Usage 数据（LLM 响应后填充）
     pub input_tokens: Option<u32>,
     pub output_tokens: Option<u32>,
@@ -72,15 +67,7 @@ impl tracing::field::Visit for SpanData {
         }
     }
 
-    fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
-        match field.name() {
-            "input_multiplier" => self.input_multiplier = Some(value),
-            "output_multiplier" => self.output_multiplier = Some(value),
-            "cache_write_multiplier" => self.cache_write_multiplier = Some(value),
-            "cache_read_multiplier" => self.cache_read_multiplier = Some(value),
-            _ => {}
-        }
-    }
+    fn record_f64(&mut self, _field: &tracing::field::Field, _value: f64) {}
 
     fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
         match field.name() {

@@ -148,8 +148,6 @@ async fn model_crud() {
                 "display_name": "GPT-4o",
                 "aliases": ["gpt4"],
                 "supports_tools": true,
-                "input_multiplier": 2.5,
-                "output_multiplier": 10.0,
                 "context_window": 128000
             }"#),
         ))
@@ -182,7 +180,7 @@ async fn model_crud() {
         .oneshot(admin_request(
             "PUT",
             "/admin/api/v1/models/openai/gpt-4o",
-            Some(r#"{"display_name":"GPT-4o Updated","input_multiplier":5.0,"enabled":false}"#),
+            Some(r#"{"display_name":"GPT-4o Updated","enabled":false}"#),
         ))
         .await
         .unwrap();
@@ -190,10 +188,8 @@ async fn model_crud() {
     let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     let updated: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(updated["display_name"], "GPT-4o Updated");
-    assert_eq!(updated["input_multiplier"], 5.0);
     assert_eq!(updated["enabled"], false);
     // Unchanged fields preserved
-    assert_eq!(updated["output_multiplier"], 10.0);
     assert_eq!(updated["supports_tools"], true);
 
     // Delete
@@ -242,7 +238,6 @@ async fn usage_query_and_summary() {
     let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     let summary: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(summary["total_requests"], 0);
-    assert_eq!(summary["total_credits"], 0);
 }
 
 // --- ApiKey CRUD ---
@@ -260,8 +255,7 @@ async fn api_key_crud() {
             Some(r#"{
                 "name": "test-key",
                 "model_group": ["openai/gpt-4o"],
-                "default_model": "openai/gpt-4o",
-                "credit_limit": 100000
+                "default_model": "openai/gpt-4o"
             }"#),
         ))
         .await
@@ -291,7 +285,7 @@ async fn api_key_crud() {
         .oneshot(admin_request(
             "PUT",
             &format!("/admin/api/v1/keys/{key_id}"),
-            Some(r#"{"name":"updated-key","credit_limit":999}"#),
+            Some(r#"{"name":"updated-key"}"#),
         ))
         .await
         .unwrap();
@@ -299,19 +293,6 @@ async fn api_key_crud() {
     let body = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     let updated: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(updated["name"], "updated-key");
-    assert_eq!(updated["credit_limit"], 999);
-
-    // Reset credits
-    let resp = app
-        .clone()
-        .oneshot(admin_request(
-            "POST",
-            &format!("/admin/api/v1/keys/{key_id}/reset-credits"),
-            None,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
 
     // Delete
     let resp = app

@@ -96,19 +96,6 @@ pub struct Model {
     #[serde(default = "default_cache_strategy")]
     pub cache_strategy: String,
 
-    // --- 文本计费倍率（每 1k tokens 消耗的 credits）---
-    pub input_multiplier: f64,
-    pub output_multiplier: f64,
-    pub cache_write_multiplier: Option<f64>,
-    pub cache_read_multiplier: Option<f64>,
-
-    // --- 多模态计费倍率（None = 不支持该模态）---
-    pub image_input_multiplier: Option<f64>,
-    pub audio_input_multiplier: Option<f64>,
-    pub video_input_multiplier: Option<f64>,
-    pub image_generation_multiplier: Option<f64>,
-    pub tts_multiplier: Option<f64>,
-
     /// 自定义 header（转发请求时自动附加）
     pub extra_headers: HashMap<String, String>,
 

@@ -24,8 +24,8 @@
       </el-col>
       <el-col :span="6">
         <el-card shadow="hover">
-          <div class="stat-label">{{ $t('usage.totalCredits') }}</div>
-          <div class="stat-value">{{ summary.total_credits?.toLocaleString() || 0 }}</div>
+          <div class="stat-label">{{ $t('usage.totalTokens') }}</div>
+          <div class="stat-value">{{ ((summary.total_input_tokens || 0) + (summary.total_output_tokens || 0)).toLocaleString() }}</div>
         </el-card>
       </el-col>
     </el-row>
@@ -87,13 +87,13 @@
     <el-row :gutter="16" style="margin-bottom: 20px;">
       <el-col :span="12">
         <el-card shadow="hover">
-          <template #header><span>{{ $t('usage.creditsByModel') }}</span></template>
+          <template #header><span>{{ $t('usage.tokensByModel') }}</span></template>
           <v-chart :option="modelOption" style="height: 300px;" autoresize />
         </el-card>
       </el-col>
       <el-col :span="12">
         <el-card shadow="hover">
-          <template #header><span>{{ $t('usage.creditsByKey') }}</span></template>
+          <template #header><span>{{ $t('usage.tokensByKey') }}</span></template>
           <v-chart :option="keyOption" style="height: 300px;" autoresize />
         </el-card>
       </el-col>
@@ -136,11 +136,6 @@
       <el-table-column prop="estimated_chars" :label="$t('usage.estChars')" width="110" align="right">
         <template #default="{ row }">
           {{ row.estimated_chars ? row.estimated_chars.toLocaleString() : '-' }}
-        </template>
-      </el-table-column>
-      <el-table-column prop="credits_consumed" :label="$t('usage.credits')" width="100" align="right">
-        <template #default="{ row }">
-          {{ row.credits_consumed.toLocaleString() }}
         </template>
       </el-table-column>
       <el-table-column prop="ttft_ms" :label="$t('usage.ttft')" width="90" align="right">
@@ -193,7 +188,6 @@ interface TrendPoint {
   output_tokens: number
   cache_write_tokens: number
   cache_read_tokens: number
-  credits: number
 }
 
 interface GroupedUsage {
@@ -204,7 +198,6 @@ interface GroupedUsage {
   output_tokens: number
   cache_write_tokens: number
   cache_read_tokens: number
-  credits: number
 }
 
 const records = ref<any[]>([])
@@ -239,12 +232,12 @@ function buildQuery() {
 
 const trendOption = computed(() => ({
   tooltip: { trigger: 'axis' },
-  legend: { data: [t('usage.requests'), t('usage.credits'), t('usage.cacheHitRate')] },
+  legend: { data: [t('usage.requests'), t('usage.tokens'), t('usage.cacheHitRate')] },
   grid: { left: 60, right: 100, bottom: 30, top: 40 },
   xAxis: { type: 'category', data: trendData.value.map((p) => p.date) },
   yAxis: [
     { type: 'value', name: t('usage.requests'), position: 'left' },
-    { type: 'value', name: t('usage.credits'), position: 'right' },
+    { type: 'value', name: t('usage.tokens'), position: 'right' },
     { type: 'value', name: t('usage.cacheHitRate'), position: 'right', offset: 50, min: 0, max: 100, axisLabel: { formatter: '{value}%' } },
   ],
   series: [
@@ -255,11 +248,11 @@ const trendOption = computed(() => ({
       data: trendData.value.map((p) => p.requests),
     },
     {
-      name: t('usage.credits'),
+      name: t('usage.tokens'),
       type: 'line',
       smooth: true,
       yAxisIndex: 1,
-      data: trendData.value.map((p) => p.credits),
+      data: trendData.value.map((p) => p.input_tokens + p.output_tokens),
     },
     {
       name: t('usage.cacheHitRate'),
@@ -284,7 +277,7 @@ const modelOption = computed(() => ({
       label: { formatter: '{b}\n{d}%' },
       data: modelData.value.map((m) => ({
         name: m.display_name,
-        value: m.credits,
+        value: m.input_tokens + m.output_tokens,
       })),
     },
   ],
@@ -293,7 +286,7 @@ const modelOption = computed(() => ({
 const keyOption = computed(() => ({
   tooltip: { trigger: 'axis' },
   grid: { left: 100, right: 40, bottom: 30, top: 20 },
-  xAxis: { type: 'value', name: t('usage.credits') },
+  xAxis: { type: 'value', name: t('usage.tokens') },
   yAxis: {
     type: 'category',
     data: keyData.value.map((k) => k.display_name).reverse(),
@@ -302,7 +295,7 @@ const keyOption = computed(() => ({
   series: [
     {
       type: 'bar',
-      data: keyData.value.map((k) => k.credits).reverse(),
+      data: keyData.value.map((k) => k.input_tokens + k.output_tokens).reverse(),
     },
   ],
 }))

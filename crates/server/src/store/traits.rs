@@ -24,7 +24,6 @@ pub struct UsageSummary {
     pub total_output_tokens: u64,
     pub total_cache_write_tokens: u64,
     pub total_cache_read_tokens: u64,
-    pub total_credits: i64,
 }
 
 /// 时间趋势数据点（按日分桶）
@@ -37,7 +36,6 @@ pub struct TrendPoint {
     pub output_tokens: u64,
     pub cache_write_tokens: u64,
     pub cache_read_tokens: u64,
-    pub credits: i64,
 }
 
 /// 分组聚合结果（用于 by-model / by-key）
@@ -52,7 +50,6 @@ pub struct GroupedUsage {
     pub output_tokens: u64,
     pub cache_write_tokens: u64,
     pub cache_read_tokens: u64,
-    pub credits: i64,
 }
 
 #[async_trait]
@@ -88,8 +85,6 @@ pub trait ProxyStore: Send + Sync {
     async fn list_api_keys(&self) -> Result<Vec<ApiKey>, StoreError>;
     async fn upsert_api_key(&self, k: &ApiKey) -> Result<(), StoreError>;
     async fn delete_api_key(&self, id: &str) -> Result<(), StoreError>;
-    async fn add_credits_used(&self, key_id: &str, credits: i64) -> Result<(), StoreError>;
-    async fn reset_credits(&self, key_id: &str) -> Result<(), StoreError>;
 
     // --- Usage ---
     async fn insert_usage(&self, record: &UsageRecord) -> Result<(), StoreError>;

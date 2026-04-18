@@ -61,22 +61,6 @@ pub async fn proxy_auth(
             .into_response());
     }
 
-    // 检查额度
-    if !api_key.has_credits() {
-        tracing::warn!(
-            key_id = %api_key.id,
-            key_name = %api_key.name,
-            credit_used = api_key.credit_used,
-            credit_limit = api_key.credit_limit,
-            "Credit limit exceeded"
-        );
-        return Err((
-            StatusCode::TOO_MANY_REQUESTS,
-            Json(ErrorResponse::rate_limit("Credit limit exceeded")),
-        )
-            .into_response());
-    }
-
     // RPM 检查
     if let Err(reset_after) = state.rate_limiter.check_rpm(&api_key.id, api_key.rpm_limit) {
         tracing::warn!(
@@ -170,72 +154,10 @@ fn extract_api_key(request: &Request) -> Option<String> {
     None
 }
 
-/// 根据 token 用量和模型乘数计算 credit 消耗
-pub fn compute_credits(
-    input_tokens: u32,
-    output_tokens: u32,
-    cache_write_tokens: u32,
-    cache_read_tokens: u32,
-    input_multiplier: f64,
-    output_multiplier: f64,
-    cache_write_multiplier: Option<f64>,
-    cache_read_multiplier: Option<f64>,
-) -> i64 {
-    let mut credits: f64 = 0.0;
-    credits += (input_tokens as f64 / 1000.0) * input_multiplier;
-    credits += (output_tokens as f64 / 1000.0) * output_multiplier;
-    if let Some(cw) = cache_write_multiplier {
-        credits += (cache_write_tokens as f64 / 1000.0) * cw;
-    }
-    if let Some(cr) = cache_read_multiplier {
-        credits += (cache_read_tokens as f64 / 1000.0) * cr;
-    }
-    credits.ceil() as i64
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use axum::body::Body;
-    use crate::models::ApiKey;
-    use crate::models::model::{ApiFormat, Model, ModelType};
-    use std::collections::HashMap;
-
-    fn test_model() -> Model {
-        Model {
-            provider_id: "openai".into(),
-            vendor_model_name: "gpt-4o".into(),
-            display_name: "GPT-4o".into(),
-            aliases: vec![],
-            model_type: ModelType::Chat,
-            api_formats: vec![ApiFormat::OpenAI],
-            supports_streaming: true,
-            supports_tools: true,
-            supports_structured_output: false,
-            supports_vision: false,
-            supports_prefill: false,
-            supports_cache: false,
-            supports_web_search: false,
-            supports_batch: false,
-            context_window: 128000,
-            cache_enabled: true,
-            cache_strategy: "full".into(),
-            input_multiplier: 2.5,
-            output_multiplier: 10.0,
-            cache_write_multiplier: Some(3.75),
-            cache_read_multiplier: Some(0.3),
-            image_input_multiplier: None,
-            audio_input_multiplier: None,
-            video_input_multiplier: None,
-            image_generation_multiplier: None,
-            tts_multiplier: None,
-            extra_headers: HashMap::new(),
-            rpm_limit: 0,
-            tpm_limit: 0,
-            enabled: true,
-            created_at: chrono::Utc::now(),
-        }
-    }
 
     #[test]
     fn extract_key_bearer() {
@@ -272,95 +194,4 @@ mod tests {
         assert_eq!(extract_api_key(&req), Some("sk-bearer".into()));
     }
 
-    #[test]
-    fn credit_calculation_text_only() {
-        let model = test_model();
-        // 1000 input * 2.5/1000 + 500 output * 10.0/1000 = 2.5 + 5.0 = 7.5 → ceil = 8
-        let credits = {
-            let mut c: f64 = 0.0;
-            c += (1000.0 / 1000.0) * model.input_multiplier;
-            c += (500.0 / 1000.0) * model.output_multiplier;
-            c.ceil() as i64
-        };
-        assert_eq!(credits, 8);
-    }
-
-    #[test]
-    fn credit_calculation_with_cache() {
-        let model = test_model();
-        // input: 100 * 2.5/1000 = 0.25
-        // output: 50 * 10.0/1000 = 0.5
-        // cache_write: 2000 * 3.75/1000 = 7.5
-        // cache_read: 5000 * 0.3/1000 = 1.5
-        // total = 9.75 → ceil = 10
-        let mut credits: f64 = 0.0;
-        credits += (100.0 / 1000.0) * model.input_multiplier;
-        credits += (50.0 / 1000.0) * model.output_multiplier;
-        credits += (2000.0 / 1000.0) * model.cache_write_multiplier.unwrap();
-        credits += (5000.0 / 1000.0) * model.cache_read_multiplier.unwrap();
-        assert_eq!(credits.ceil() as i64, 10);
-    }
-
-    #[test]
-    fn api_key_has_credits_unlimited() {
-        let key = ApiKey {
-            id: "k1".into(),
-            key: "sk-proxy-test".into(),
-            name: "test".into(),
-            model_group: vec![],
-            default_model: String::new(),
-            fallback_models: vec![],
-            credit_limit: 0, // unlimited
-            credit_used: 999999,
-            rpm_limit: 0,
-            tpm_limit: 0,
-            model_map: Default::default(),
-            enabled: true,
-            created_at: chrono::Utc::now(),
-            last_used_at: None,
-        };
-        assert!(key.has_credits());
-    }
-
-    #[test]
-    fn api_key_has_credits_within_limit() {
-        let key = ApiKey {
-            id: "k1".into(),
-            key: "sk-proxy-test".into(),
-            name: "test".into(),
-            model_group: vec![],
-            default_model: String::new(),
-            fallback_models: vec![],
-            credit_limit: 1000,
-            credit_used: 500,
-            rpm_limit: 0,
-            tpm_limit: 0,
-            model_map: Default::default(),
-            enabled: true,
-            created_at: chrono::Utc::now(),
-            last_used_at: None,
-        };
-        assert!(key.has_credits());
-    }
-
-    #[test]
-    fn api_key_has_credits_exceeded() {
-        let key = ApiKey {
-            id: "k1".into(),
-            key: "sk-proxy-test".into(),
-            name: "test".into(),
-            model_group: vec![],
-            default_model: String::new(),
-            fallback_models: vec![],
-            credit_limit: 1000,
-            credit_used: 1000,
-            rpm_limit: 0,
-            tpm_limit: 0,
-            model_map: Default::default(),
-            enabled: true,
-            created_at: chrono::Utc::now(),
-            last_used_at: None,
-        };
-        assert!(!key.has_credits());
-    }
 }

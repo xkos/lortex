@@ -4,4 +4,4 @@ pub mod auth;
 pub mod proxy_auth;
 
 pub use auth::AdminKey;
-pub use proxy_auth::{compute_credits, proxy_auth};
+pub use proxy_auth::proxy_auth;

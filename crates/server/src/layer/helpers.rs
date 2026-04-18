@@ -7,10 +7,6 @@ pub fn record_model_fields(span: &tracing::Span, model: &Model) {
     span.record("model_id", model.id().as_str());
     span.record("provider_id", model.provider_id.as_str());
     span.record("vendor_model_name", model.vendor_model_name.as_str());
-    span.record("input_multiplier", model.input_multiplier);
-    span.record("output_multiplier", model.output_multiplier);
-    span.record("cache_write_multiplier", model.cache_write_multiplier.unwrap_or(0.0));
-    span.record("cache_read_multiplier", model.cache_read_multiplier.unwrap_or(0.0));
 }
 
 /// 将 LLM usage 数据写入当前 span

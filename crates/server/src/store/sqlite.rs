@@ -252,43 +252,6 @@ impl ProxyStore for SqliteStore {
         Ok(())
     }
 
-    async fn add_credits_used(&self, key_id: &str, credits: i64) -> Result<(), StoreError> {
-        // Read, modify, write — atomic via single connection
-        let row = sqlx::query("SELECT data FROM entities WHERE kind = 'api_key' AND id = ?")
-            .bind(key_id)
-            .fetch_optional(&self.pool)
-            .await?;
-        if let Some(ref r) = row {
-            let mut key: ApiKey = parse_json(r)?;
-            key.credit_used += credits;
-            let data = serde_json::to_string(&key)?;
-            sqlx::query("UPDATE entities SET data = ? WHERE kind = 'api_key' AND id = ?")
-                .bind(&data)
-                .bind(key_id)
-                .execute(&self.pool)
-                .await?;
-        }
-        Ok(())
-    }
-
-    async fn reset_credits(&self, key_id: &str) -> Result<(), StoreError> {
-        let row = sqlx::query("SELECT data FROM entities WHERE kind = 'api_key' AND id = ?")
-            .bind(key_id)
-            .fetch_optional(&self.pool)
-            .await?;
-        if let Some(ref r) = row {
-            let mut key: ApiKey = parse_json(r)?;
-            key.credit_used = 0;
-            let data = serde_json::to_string(&key)?;
-            sqlx::query("UPDATE entities SET data = ? WHERE kind = 'api_key' AND id = ?")
-                .bind(&data)
-                .bind(key_id)
-                .execute(&self.pool)
-                .await?;
-        }
-        Ok(())
-    }
-
     // --- Usage ---
 
     async fn insert_usage(&self, record: &UsageRecord) -> Result<(), StoreError> {
@@ -368,7 +331,6 @@ impl ProxyStore for SqliteStore {
             total_output_tokens: 0,
             total_cache_write_tokens: 0,
             total_cache_read_tokens: 0,
-            total_credits: 0,
         };
 
         for r in &records {
@@ -377,7 +339,6 @@ impl ProxyStore for SqliteStore {
             summary.total_output_tokens += r.output_tokens as u64;
             summary.total_cache_write_tokens += r.cache_write_tokens as u64;
             summary.total_cache_read_tokens += r.cache_read_tokens as u64;
-            summary.total_credits += r.credits_consumed;
         }
 
         Ok(summary)
@@ -403,14 +364,12 @@ impl ProxyStore for SqliteStore {
                 output_tokens: 0,
                 cache_write_tokens: 0,
                 cache_read_tokens: 0,
-                credits: 0,
             });
             point.requests += 1;
             point.input_tokens += r.input_tokens as u64;
             point.output_tokens += r.output_tokens as u64;
             point.cache_write_tokens += r.cache_write_tokens as u64;
             point.cache_read_tokens += r.cache_read_tokens as u64;
-            point.credits += r.credits_consumed;
         }
 
         Ok(buckets.into_values().collect())
@@ -437,18 +396,16 @@ impl ProxyStore for SqliteStore {
                 output_tokens: 0,
                 cache_write_tokens: 0,
                 cache_read_tokens: 0,
-                credits: 0,
             });
             entry.requests += 1;
             entry.input_tokens += r.input_tokens as u64;
             entry.output_tokens += r.output_tokens as u64;
             entry.cache_write_tokens += r.cache_write_tokens as u64;
             entry.cache_read_tokens += r.cache_read_tokens as u64;
-            entry.credits += r.credits_consumed;
         }
 
         let mut result: Vec<GroupedUsage> = groups.into_values().collect();
-        result.sort_by(|a, b| b.credits.cmp(&a.credits));
+        result.sort_by(|a, b| (b.input_tokens + b.output_tokens).cmp(&(a.input_tokens + a.output_tokens)));
         Ok(result)
     }
 
@@ -475,18 +432,16 @@ impl ProxyStore for SqliteStore {
                         output_tokens: 0,
                         cache_write_tokens: 0,
                         cache_read_tokens: 0,
-                        credits: 0,
                     });
             entry.requests += 1;
             entry.input_tokens += r.input_tokens as u64;
             entry.output_tokens += r.output_tokens as u64;
             entry.cache_write_tokens += r.cache_write_tokens as u64;
             entry.cache_read_tokens += r.cache_read_tokens as u64;
-            entry.credits += r.credits_consumed;
         }
 
         let mut result: Vec<GroupedUsage> = groups.into_values().collect();
-        result.sort_by(|a, b| b.credits.cmp(&a.credits));
+        result.sort_by(|a, b| (b.input_tokens + b.output_tokens).cmp(&(a.input_tokens + a.output_tokens)));
         Ok(result)
     }
 
@@ -604,15 +559,6 @@ mod tests {
             context_window: 128000,
             cache_enabled: true,
             cache_strategy: "full".into(),
-            input_multiplier: 2.5,
-            output_multiplier: 10.0,
-            cache_write_multiplier: None,
-            cache_read_multiplier: None,
-            image_input_multiplier: None,
-            audio_input_multiplier: None,
-            video_input_multiplier: None,
-            image_generation_multiplier: None,
-            tts_multiplier: None,
             extra_headers: HashMap::new(),
             rpm_limit: 0,
             tpm_limit: 0,
@@ -629,8 +575,6 @@ mod tests {
             model_group: vec!["openai/gpt-4o".into()],
             default_model: "openai/gpt-4o".into(),
             fallback_models: vec![],
-            credit_limit: 100000,
-            credit_used: 0,
             rpm_limit: 0,
             tpm_limit: 0,
             model_map: Default::default(),
@@ -691,7 +635,6 @@ mod tests {
 
         let got = store.get_model("openai", "gpt-4o").await.unwrap().unwrap();
         assert_eq!(got.display_name, "gpt-4o display");
-        assert_eq!(got.input_multiplier, 2.5);
 
         let all = store.list_models().await.unwrap();
         assert_eq!(all.len(), 1);
@@ -706,12 +649,10 @@ mod tests {
         let mut m = test_model("openai", "gpt-4o");
         store.upsert_model(&m).await.unwrap();
 
-        m.input_multiplier = 5.0;
         m.supports_vision = true;
         store.upsert_model(&m).await.unwrap();
 
         let got = store.get_model("openai", "gpt-4o").await.unwrap().unwrap();
-        assert_eq!(got.input_multiplier, 5.0);
         assert!(got.supports_vision);
         assert_eq!(store.list_models().await.unwrap().len(), 1);
     }
@@ -755,22 +696,6 @@ mod tests {
 
         let not_found = store.find_model("nonexistent").await.unwrap();
         assert!(not_found.is_none());
-    }
-
-    #[tokio::test]
-    async fn model_with_optional_multipliers() {
-        let store = test_store().await;
-        let mut m = test_model("openai", "gpt-4o");
-        m.cache_write_multiplier = Some(3.75);
-        m.cache_read_multiplier = Some(0.3);
-        m.image_input_multiplier = Some(1.5);
-        store.upsert_model(&m).await.unwrap();
-
-        let got = store.get_model("openai", "gpt-4o").await.unwrap().unwrap();
-        assert_eq!(got.cache_write_multiplier, Some(3.75));
-        assert_eq!(got.cache_read_multiplier, Some(0.3));
-        assert_eq!(got.image_input_multiplier, Some(1.5));
-        assert!(got.audio_input_multiplier.is_none());
     }
 
     #[tokio::test]
@@ -820,35 +745,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn api_key_credits() {
-        let store = test_store().await;
-        let k = test_api_key("key1");
-        store.upsert_api_key(&k).await.unwrap();
-
-        store.add_credits_used("key1", 500).await.unwrap();
-        store.add_credits_used("key1", 300).await.unwrap();
-
-        let got = store.get_api_key_by_id("key1").await.unwrap().unwrap();
-        assert_eq!(got.credit_used, 800);
-
-        store.reset_credits("key1").await.unwrap();
-        let got = store.get_api_key_by_id("key1").await.unwrap().unwrap();
-        assert_eq!(got.credit_used, 0);
-    }
-
-    #[tokio::test]
     async fn api_key_upsert_updates() {
         let store = test_store().await;
         let mut k = test_api_key("key1");
         store.upsert_api_key(&k).await.unwrap();
 
         k.name = "updated name".into();
-        k.credit_limit = 999;
         store.upsert_api_key(&k).await.unwrap();
 
         let got = store.get_api_key_by_id("key1").await.unwrap().unwrap();
         assert_eq!(got.name, "updated name");
-        assert_eq!(got.credit_limit, 999);
         assert_eq!(store.list_api_keys().await.unwrap().len(), 1);
     }
 
@@ -924,7 +830,6 @@ mod tests {
         model_name: &str,
         input_tokens: u32,
         output_tokens: u32,
-        credits: i64,
         created_at: chrono::DateTime<Utc>,
     ) -> UsageRecord {
         UsageRecord {
@@ -940,7 +845,6 @@ mod tests {
             output_tokens,
             image_input_units: 0,
             audio_input_seconds: 0.0,
-            credits_consumed: credits,
             estimated_chars: 0,
             ttft_ms: 0,
             latency_ms: 0,
@@ -968,16 +872,15 @@ mod tests {
             .unwrap()
             .with_timezone(&Utc);
 
-        store.insert_usage(&test_usage("u1", "k1", "key1", "openai", "gpt-4o", 100, 50, 500, day1)).await.unwrap();
-        store.insert_usage(&test_usage("u2", "k1", "key1", "openai", "gpt-4o", 200, 80, 800, day1b)).await.unwrap();
-        store.insert_usage(&test_usage("u3", "k1", "key1", "anthropic", "claude", 150, 60, 600, day2)).await.unwrap();
+        store.insert_usage(&test_usage("u1", "k1", "key1", "openai", "gpt-4o", 100, 50, day1)).await.unwrap();
+        store.insert_usage(&test_usage("u2", "k1", "key1", "openai", "gpt-4o", 200, 80, day1b)).await.unwrap();
+        store.insert_usage(&test_usage("u3", "k1", "key1", "anthropic", "claude", 150, 60, day2)).await.unwrap();
 
         let trend = store.usage_trend(&UsageQuery::default()).await.unwrap();
         assert_eq!(trend.len(), 2);
         assert_eq!(trend[0].date, "2026-04-10");
         assert_eq!(trend[0].requests, 2);
         assert_eq!(trend[0].input_tokens, 300);
-        assert_eq!(trend[0].credits, 1300);
         assert_eq!(trend[1].date, "2026-04-11");
         assert_eq!(trend[1].requests, 1);
     }
@@ -987,18 +890,17 @@ mod tests {
         let store = test_store().await;
         let now = Utc::now();
 
-        store.insert_usage(&test_usage("u1", "k1", "key1", "openai", "gpt-4o", 100, 50, 500, now)).await.unwrap();
-        store.insert_usage(&test_usage("u2", "k1", "key1", "openai", "gpt-4o", 200, 80, 800, now)).await.unwrap();
-        store.insert_usage(&test_usage("u3", "k1", "key1", "anthropic", "claude", 150, 60, 2000, now)).await.unwrap();
+        store.insert_usage(&test_usage("u1", "k1", "key1", "openai", "gpt-4o", 100, 50, now)).await.unwrap();
+        store.insert_usage(&test_usage("u2", "k1", "key1", "openai", "gpt-4o", 200, 80, now)).await.unwrap();
+        store.insert_usage(&test_usage("u3", "k1", "key1", "anthropic", "claude", 150, 60, now)).await.unwrap();
 
         let by_model = store.usage_by_model(&UsageQuery::default()).await.unwrap();
         assert_eq!(by_model.len(), 2);
-        // sorted by credits desc: anthropic/claude(2000) > openai/gpt-4o(1300)
-        assert_eq!(by_model[0].group_key, "anthropic/claude");
-        assert_eq!(by_model[0].credits, 2000);
-        assert_eq!(by_model[1].group_key, "openai/gpt-4o");
-        assert_eq!(by_model[1].requests, 2);
-        assert_eq!(by_model[1].input_tokens, 300);
+        // sorted by total tokens desc: openai/gpt-4o(300+130=430) > anthropic/claude(150+60=210)
+        assert_eq!(by_model[0].group_key, "openai/gpt-4o");
+        assert_eq!(by_model[0].requests, 2);
+        assert_eq!(by_model[0].input_tokens, 300);
+        assert_eq!(by_model[1].group_key, "anthropic/claude");
     }
 
     #[tokio::test]
@@ -1006,18 +908,17 @@ mod tests {
         let store = test_store().await;
         let now = Utc::now();
 
-        store.insert_usage(&test_usage("u1", "k1", "Alice", "openai", "gpt-4o", 100, 50, 500, now)).await.unwrap();
-        store.insert_usage(&test_usage("u2", "k2", "Bob", "openai", "gpt-4o", 200, 80, 2000, now)).await.unwrap();
-        store.insert_usage(&test_usage("u3", "k1", "Alice", "anthropic", "claude", 150, 60, 600, now)).await.unwrap();
+        store.insert_usage(&test_usage("u1", "k1", "Alice", "openai", "gpt-4o", 100, 50, now)).await.unwrap();
+        store.insert_usage(&test_usage("u2", "k2", "Bob", "openai", "gpt-4o", 200, 80, now)).await.unwrap();
+        store.insert_usage(&test_usage("u3", "k1", "Alice", "anthropic", "claude", 150, 60, now)).await.unwrap();
 
         let by_key = store.usage_by_key(&UsageQuery::default()).await.unwrap();
         assert_eq!(by_key.len(), 2);
-        // sorted by credits desc: k2(2000) > k1(1100)
-        assert_eq!(by_key[0].group_key, "k2");
-        assert_eq!(by_key[0].display_name, "Bob");
-        assert_eq!(by_key[0].credits, 2000);
-        assert_eq!(by_key[1].group_key, "k1");
-        assert_eq!(by_key[1].requests, 2);
+        // sorted by total tokens desc: k1(250+110=360) > k2(200+80=280)
+        assert_eq!(by_key[0].group_key, "k1");
+        assert_eq!(by_key[0].requests, 2);
+        assert_eq!(by_key[1].group_key, "k2");
+        assert_eq!(by_key[1].display_name, "Bob");
     }
 
     #[tokio::test]
@@ -1030,8 +931,8 @@ mod tests {
             .unwrap()
             .with_timezone(&Utc);
 
-        store.insert_usage(&test_usage("u1", "k1", "key1", "openai", "gpt-4o", 100, 50, 500, day1)).await.unwrap();
-        store.insert_usage(&test_usage("u2", "k1", "key1", "openai", "gpt-4o", 200, 80, 800, day2)).await.unwrap();
+        store.insert_usage(&test_usage("u1", "k1", "key1", "openai", "gpt-4o", 100, 50, day1)).await.unwrap();
+        store.insert_usage(&test_usage("u2", "k1", "key1", "openai", "gpt-4o", 200, 80, day2)).await.unwrap();
 
         let query = UsageQuery {
             start_time: Some(

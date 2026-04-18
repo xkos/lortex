@@ -1,6 +1,6 @@
 //! Proxy API 端到端测试
 //!
-//! 测试完整链路：鉴权 → 模型解析 → 转发 → credit 扣减
+//! 测试完整链路：鉴权 → 模型解析 → 转发
 //! 注意：这里不测试真实 LLM 调用，只测试 proxy 层逻辑。
 //! 真实 LLM 调用需要 provider 层的 mock，在 003c 中处理。
 
@@ -76,8 +76,6 @@ async fn seed_test_data(app: &axum::Router) -> String {
                 "display_name": "GPT-4o",
                 "aliases": ["gpt4"],
                 "supports_tools": true,
-                "input_multiplier": 2.5,
-                "output_multiplier": 10.0,
                 "context_window": 128000
             }"#),
         ))
@@ -94,8 +92,7 @@ async fn seed_test_data(app: &axum::Router) -> String {
             Some(r#"{
                 "name": "test-key",
                 "model_group": ["test-openai/gpt-4o", "gpt4"],
-                "default_model": "test-openai/gpt-4o",
-                "credit_limit": 100000
+                "default_model": "test-openai/gpt-4o"
             }"#),
         ))
         .await
@@ -149,22 +146,6 @@ async fn proxy_rejects_disabled_key() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
-}
-
-#[tokio::test]
-async fn proxy_rejects_exceeded_credits() {
-    let (app, store) = setup().await;
-    let api_key = seed_test_data(&app).await;
-
-    // Exhaust credits
-    let key = store.get_api_key_by_key(&api_key).await.unwrap().unwrap();
-    store.add_credits_used(&key.id, 100000).await.unwrap();
-
-    let resp = app
-        .oneshot(proxy_request("GET", "/v1/models", &api_key, None))
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
 }
 
 // --- /v1/models tests ---
@@ -253,15 +234,6 @@ async fn chat_completions_model_not_in_group() {
         context_window: 128000,
         cache_enabled: true,
         cache_strategy: "full".into(),
-        input_multiplier: 0.15,
-        output_multiplier: 0.6,
-        cache_write_multiplier: None,
-        cache_read_multiplier: None,
-        image_input_multiplier: None,
-        audio_input_multiplier: None,
-        video_input_multiplier: None,
-        image_generation_multiplier: None,
-        tts_multiplier: None,
         extra_headers: std::collections::HashMap::new(),
         rpm_limit: 0,
         tpm_limit: 0,

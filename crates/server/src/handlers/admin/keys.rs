@@ -23,8 +23,6 @@ pub struct CreateApiKeyRequest {
     #[serde(default)]
     pub fallback_models: Vec<String>,
     #[serde(default)]
-    pub credit_limit: i64,
-    #[serde(default)]
     pub rpm_limit: u32,
     #[serde(default)]
     pub tpm_limit: u32,
@@ -42,7 +40,6 @@ pub struct UpdateApiKeyRequest {
     pub model_group: Option<Vec<String>>,
     pub default_model: Option<String>,
     pub fallback_models: Option<Vec<String>>,
-    pub credit_limit: Option<i64>,
     pub rpm_limit: Option<u32>,
     pub tpm_limit: Option<u32>,
     pub model_map: Option<HashMap<String, String>>,
@@ -57,8 +54,6 @@ pub struct ApiKeyResponse {
     pub name: String,
     pub model_group: Vec<String>,
     pub default_model: String,
-    pub credit_limit: i64,
-    pub credit_used: i64,
     pub rpm_limit: u32,
     pub tpm_limit: u32,
     pub model_map: HashMap<String, String>,
@@ -78,8 +73,6 @@ impl From<&ApiKey> for ApiKeyResponse {
             name: k.name.clone(),
             model_group: k.model_group.clone(),
             default_model: k.default_model.clone(),
-            credit_limit: k.credit_limit,
-            credit_used: k.credit_used,
             rpm_limit: k.rpm_limit,
             tpm_limit: k.tpm_limit,
             model_map: k.model_map.clone(),
@@ -118,8 +111,6 @@ pub async fn create(
         model_group: req.model_group,
         default_model: req.default_model,
         fallback_models: req.fallback_models,
-        credit_limit: req.credit_limit,
-        credit_used: 0,
         rpm_limit: req.rpm_limit,
         tpm_limit: req.tpm_limit,
         model_map: req.model_map,
@@ -146,7 +137,6 @@ pub async fn update(
     if let Some(v) = req.model_group { key.model_group = v; }
     if let Some(v) = req.default_model { key.default_model = v; }
     if let Some(v) = req.fallback_models { key.fallback_models = v; }
-    if let Some(v) = req.credit_limit { key.credit_limit = v; }
     if let Some(v) = req.rpm_limit { key.rpm_limit = v; }
     if let Some(v) = req.tpm_limit { key.tpm_limit = v; }
     if let Some(v) = req.model_map { key.model_map = v; }
@@ -164,15 +154,6 @@ pub async fn delete(
     state.store.delete_api_key(&id).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-pub async fn reset_credits(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<StatusCode, StatusCode> {
-    state.store.reset_credits(&id).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(StatusCode::OK)
 }
 
 /// 获取完整 API Key（admin only）

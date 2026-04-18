@@ -29,9 +29,6 @@ pub struct UsageRecord {
     #[serde(default)]
     pub audio_input_seconds: f64,
 
-    /// 消耗的 credits
-    pub credits_consumed: i64,
-
     /// 请求原始内容的估算字符数（用于对比上游 input_tokens 发现异常计费）
     #[serde(default)]
     pub estimated_chars: u64,

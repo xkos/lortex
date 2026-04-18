@@ -22,11 +22,6 @@ pub struct ApiKey {
     /// 故障时的备选顺序（Phase 2 实现）
     pub fallback_models: Vec<String>,
 
-    /// 额度上限（0 = 不限制）
-    pub credit_limit: i64,
-    /// 已消耗额度（只增不减，手动重置接口可清零）
-    pub credit_used: i64,
-
     /// RPM 上限（0 = 不限制）
     #[serde(default)]
     pub rpm_limit: u32,
@@ -45,20 +40,6 @@ pub struct ApiKey {
 }
 
 impl ApiKey {
-    /// 计算剩余额度，None 表示不限制
-    pub fn remaining_credits(&self) -> Option<i64> {
-        if self.credit_limit == 0 {
-            None
-        } else {
-            Some(self.credit_limit - self.credit_used)
-        }
-    }
-
-    /// 是否还有额度
-    pub fn has_credits(&self) -> bool {
-        self.credit_limit == 0 || self.credit_used < self.credit_limit
-    }
-
     /// 生成新的 proxy API key
     pub fn generate_key() -> String {
         format!("sk-proxy-{}", uuid::Uuid::new_v4().to_string().replace('-', ""))

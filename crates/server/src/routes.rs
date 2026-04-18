@@ -21,7 +21,6 @@ pub fn admin_routes(state: AppState, admin_key: String) -> Router {
         .route("/models/{provider_id}/{model_name}", get(admin::models::get).put(admin::models::update).delete(admin::models::delete))
         .route("/keys", get(admin::keys::list).post(admin::keys::create))
         .route("/keys/{id}", get(admin::keys::get).put(admin::keys::update).delete(admin::keys::delete))
-        .route("/keys/{id}/reset-credits", post(admin::keys::reset_credits))
         .route("/keys/{id}/reveal", get(admin::keys::reveal_key))
         .route("/usage", post(admin::usage::list))
         .route("/usage/summary", post(admin::usage::summary))

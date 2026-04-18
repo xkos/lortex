@@ -2,8 +2,7 @@
 //!
 //! 在 span 关闭时统一处理：
 //! 1. 计算 latency_ms
-//! 2. compute_credits()
-//! 3. tokio::spawn { add_credits_used + insert_usage + tracing::info! }
+//! 2. tokio::spawn { insert_usage + tracing::info! }
 //!
 //! 仅处理 target = "lortex::usage" 的 span。
 
@@ -13,7 +12,6 @@ use tracing::Subscriber;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
 
-use crate::middleware::proxy_auth::compute_credits;
 use crate::models::UsageRecord;
 use crate::rate_limiter::RateLimiter;
 use crate::store::ProxyStore;
@@ -118,30 +116,6 @@ where
         let cache_write_tokens = data.cache_write_tokens.unwrap_or(0);
         let cache_read_tokens = data.cache_read_tokens.unwrap_or(0);
 
-        let input_multiplier = data.input_multiplier.unwrap_or(0.0);
-        let output_multiplier = data.output_multiplier.unwrap_or(0.0);
-        let cache_write_multiplier = if data.cache_write_multiplier == Some(0.0) {
-            None
-        } else {
-            data.cache_write_multiplier
-        };
-        let cache_read_multiplier = if data.cache_read_multiplier == Some(0.0) {
-            None
-        } else {
-            data.cache_read_multiplier
-        };
-
-        let credits = compute_credits(
-            input_tokens,
-            output_tokens,
-            cache_write_tokens,
-            cache_read_tokens,
-            input_multiplier,
-            output_multiplier,
-            cache_write_multiplier,
-            cache_read_multiplier,
-        );
-
         // ttft: streaming 路径由 handler 设置；blocking 路径回退到 latency_ms
         let ttft_ms = data.ttft_ms.unwrap_or(latency_ms);
 
@@ -165,16 +139,6 @@ where
 
         // on_close 是同步回调，异步写库需要 tokio::spawn
         tokio::spawn(async move {
-            // 扣减 credit
-            if let Err(e) = store.add_credits_used(&api_key_id, credits).await {
-                tracing::warn!(
-                    target: "lortex::layer",
-                    error = %e,
-                    api_key_id = %api_key_id,
-                    "Failed to deduct credits"
-                );
-            }
-
             // 写入用量记录
             let record = UsageRecord {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -189,7 +153,6 @@ where
                 output_tokens,
                 image_input_units: 0,
                 audio_input_seconds: 0.0,
-                credits_consumed: credits,
                 estimated_chars,
                 ttft_ms,
                 latency_ms,
@@ -215,7 +178,6 @@ where
                 output_tokens,
                 cache_write_tokens,
                 cache_read_tokens,
-                credits,
                 estimated_chars,
                 ttft_ms,
                 latency_ms,

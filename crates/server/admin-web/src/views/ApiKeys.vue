@@ -23,13 +23,6 @@
           <el-tag v-for="m in row.model_group" :key="m" size="small" style="margin: 2px;">{{ m }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column :label="$t('keys.credits')" width="180">
-        <template #default="{ row }">
-          <span>{{ row.credit_used.toLocaleString() }}</span>
-          <span v-if="row.credit_limit > 0"> / {{ row.credit_limit.toLocaleString() }}</span>
-          <span v-else> / {{ $t('common.unlimited') }}</span>
-        </template>
-      </el-table-column>
       <el-table-column :label="$t('keys.rpm')" width="80">
         <template #default="{ row }">
           <span v-if="row.rpm_limit > 0">{{ row.rpm_limit }}</span>
@@ -52,11 +45,6 @@
       <el-table-column :label="$t('common.actions')" width="260">
         <template #default="{ row }">
           <el-button size="small" @click="showEdit(row)">{{ $t('common.edit') }}</el-button>
-          <el-popconfirm :title="$t('keys.confirmReset')" @confirm="handleResetCredits(row.id)">
-            <template #reference>
-              <el-button size="small" type="warning">{{ $t('keys.reset') }}</el-button>
-            </template>
-          </el-popconfirm>
           <el-popconfirm :title="$t('keys.confirmDelete')" @confirm="handleDelete(row.id)">
             <template #reference>
               <el-button size="small" type="danger">{{ $t('common.delete') }}</el-button>
@@ -98,10 +86,6 @@
           <el-button @click="quickAddClaude">{{ $t('keys.quickAddClaude') }}</el-button>
         </el-form-item>
 
-        <el-form-item :label="$t('keys.creditLimit')">
-          <el-input-number v-model="createForm.credit_limit" :min="0" :step="10000" />
-          <span style="margin-left: 8px; color: #909399;">{{ $t('keys.unlimitedHint') }}</span>
-        </el-form-item>
         <el-form-item :label="$t('keys.rpmLimit')">
           <el-input-number v-model="createForm.rpm_limit" :min="0" :step="10" />
           <span style="margin-left: 8px; color: #909399;">{{ $t('keys.unlimitedHint') }}</span>
@@ -164,9 +148,6 @@
           <el-button @click="quickAddClaude">{{ $t('keys.quickAddClaude') }}</el-button>
         </el-form-item>
 
-        <el-form-item :label="$t('keys.creditLimit')">
-          <el-input-number v-model="editForm.credit_limit" :min="0" :step="10000" />
-        </el-form-item>
         <el-form-item :label="$t('keys.rpmLimit')">
           <el-input-number v-model="editForm.rpm_limit" :min="0" :step="10" />
           <span style="margin-left: 8px; color: #909399;">{{ $t('keys.unlimitedHint') }}</span>
@@ -228,7 +209,6 @@ const createForm = ref({
   name: '',
   model_group: [] as string[],
   default_model: '',
-  credit_limit: 0,
   rpm_limit: 0,
   tpm_limit: 0,
 })
@@ -238,7 +218,6 @@ const editForm = ref({
   name: '',
   model_group: [] as string[],
   default_model: '',
-  credit_limit: 0,
   rpm_limit: 0,
   tpm_limit: 0,
   enabled: true,
@@ -268,7 +247,7 @@ async function fetchModels() {
 }
 
 function showCreate() {
-  createForm.value = { name: '', model_group: [], default_model: '', credit_limit: 0, rpm_limit: 0, tpm_limit: 0 }
+  createForm.value = { name: '', model_group: [], default_model: '', rpm_limit: 0, tpm_limit: 0 }
   mappingList.value = []
   createDialogVisible.value = true
 }
@@ -279,7 +258,6 @@ function showEdit(row: any) {
     name: row.name,
     model_group: row.model_group || [],
     default_model: row.default_model,
-    credit_limit: row.credit_limit,
     rpm_limit: row.rpm_limit || 0,
     tpm_limit: row.tpm_limit || 0,
     enabled: row.enabled,
@@ -325,16 +303,6 @@ async function handleUpdate() {
     ElMessage.error(e.response?.data?.error?.message || t('keys.updateFailed'))
   } finally {
     saving.value = false
-  }
-}
-
-async function handleResetCredits(id: string) {
-  try {
-    await api.post(`/keys/${id}/reset-credits`)
-    ElMessage.success(t('keys.creditsReset'))
-    await fetchKeys()
-  } catch {
-    ElMessage.error(t('keys.resetFailed'))
   }
 }
 
