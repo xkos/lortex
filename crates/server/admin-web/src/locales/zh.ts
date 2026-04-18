@@ -26,8 +26,7 @@ export default {
   },
   layout: {
     brand: 'Lortex Proxy',
-    providers: '供应商',
-    models: '模型',
+    providersModels: '供应商 & 模型',
     apiKeys: 'API 密钥',
     usage: '用量统计',
     logout: '退出',
@@ -56,6 +55,7 @@ export default {
     confirmReset: '确认重置此供应商的熔断器？',
     resetSuccess: '熔断器已重置',
     resetFailed: '重置失败',
+    modelCount: '{n} 个模型',
   },
   models: {
     title: '模型管理',

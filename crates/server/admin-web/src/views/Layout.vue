@@ -11,11 +11,7 @@
         </div>
         <el-menu-item index="/providers">
           <el-icon><Connection /></el-icon>
-          <span>{{ $t('layout.providers') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/models">
-          <el-icon><Cpu /></el-icon>
-          <span>{{ $t('layout.models') }}</span>
+          <span>{{ $t('layout.providersModels') }}</span>
         </el-menu-item>
         <el-menu-item index="/keys">
           <el-icon><Key /></el-icon>

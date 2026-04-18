@@ -26,8 +26,7 @@ export default {
   },
   layout: {
     brand: 'Lortex Proxy',
-    providers: 'Providers',
-    models: 'Models',
+    providersModels: 'Providers & Models',
     apiKeys: 'API Keys',
     usage: 'Usage',
     logout: 'Logout',
@@ -56,6 +55,7 @@ export default {
     confirmReset: 'Reset circuit breaker for this provider?',
     resetSuccess: 'Circuit breaker reset',
     resetFailed: 'Reset failed',
+    modelCount: '{n} models',
   },
   models: {
     title: 'Models',

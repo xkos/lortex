@@ -14,13 +14,8 @@ const routes = [
     children: [
       {
         path: 'providers',
-        name: 'Providers',
-        component: () => import('../views/Providers.vue'),
-      },
-      {
-        path: 'models',
-        name: 'Models',
-        component: () => import('../views/Models.vue'),
+        name: 'ProvidersModels',
+        component: () => import('../views/ProvidersModels.vue'),
       },
       {
         path: 'keys',
