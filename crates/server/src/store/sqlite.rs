@@ -8,7 +8,7 @@ use sqlx::sqlite::{SqlitePool, SqliteRow};
 use sqlx::Row;
 
 use crate::models::api_key::ApiKey;
-use crate::models::health::ProviderHealthStatus;
+use crate::models::health::ModelHealthStatus;
 use crate::models::model::Model;
 use crate::models::provider::Provider;
 use crate::models::usage::UsageRecord;
@@ -449,12 +449,12 @@ impl ProxyStore for SqliteStore {
 
     async fn get_health_status(
         &self,
-        provider_id: &str,
-    ) -> Result<Option<ProviderHealthStatus>, StoreError> {
+        model_id: &str,
+    ) -> Result<Option<ModelHealthStatus>, StoreError> {
         let row = sqlx::query(
             "SELECT data FROM entities WHERE kind = 'health_status' AND id = ?",
         )
-        .bind(provider_id)
+        .bind(model_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -464,7 +464,7 @@ impl ProxyStore for SqliteStore {
         }
     }
 
-    async fn list_health_statuses(&self) -> Result<Vec<ProviderHealthStatus>, StoreError> {
+    async fn list_health_statuses(&self) -> Result<Vec<ModelHealthStatus>, StoreError> {
         let rows = sqlx::query(
             "SELECT data FROM entities WHERE kind = 'health_status'",
         )
@@ -476,7 +476,7 @@ impl ProxyStore for SqliteStore {
 
     async fn upsert_health_status(
         &self,
-        status: &ProviderHealthStatus,
+        status: &ModelHealthStatus,
     ) -> Result<(), StoreError> {
         let data = serde_json::to_string(status)?;
         let now = chrono::Utc::now().to_rfc3339();
@@ -485,7 +485,7 @@ impl ProxyStore for SqliteStore {
              VALUES ('health_status', ?, NULL, 1, ?, ?)
              ON CONFLICT(kind, id) DO UPDATE SET data = excluded.data",
         )
-        .bind(&status.provider_id)
+        .bind(&status.model_id)
         .bind(&data)
         .bind(&now)
         .execute(&self.pool)
@@ -779,11 +779,11 @@ mod tests {
     #[tokio::test]
     async fn health_status_roundtrip() {
         let store = test_store().await;
-        let status = ProviderHealthStatus::new("openai");
+        let status = ModelHealthStatus::new("openai/gpt-4o");
         store.upsert_health_status(&status).await.unwrap();
 
-        let got = store.get_health_status("openai").await.unwrap().unwrap();
-        assert_eq!(got.provider_id, "openai");
+        let got = store.get_health_status("openai/gpt-4o").await.unwrap().unwrap();
+        assert_eq!(got.model_id, "openai/gpt-4o");
         assert_eq!(got.circuit_state, crate::models::health::CircuitState::Closed);
         assert_eq!(got.consecutive_failures, 0);
     }
@@ -791,7 +791,7 @@ mod tests {
     #[tokio::test]
     async fn health_status_upsert_updates() {
         let store = test_store().await;
-        let mut status = ProviderHealthStatus::new("anthropic");
+        let mut status = ModelHealthStatus::new("anthropic/claude-3");
         store.upsert_health_status(&status).await.unwrap();
 
         status.consecutive_failures = 3;
@@ -799,7 +799,7 @@ mod tests {
         status.opened_at = Some(chrono::Utc::now());
         store.upsert_health_status(&status).await.unwrap();
 
-        let got = store.get_health_status("anthropic").await.unwrap().unwrap();
+        let got = store.get_health_status("anthropic/claude-3").await.unwrap().unwrap();
         assert_eq!(got.consecutive_failures, 3);
         assert_eq!(got.circuit_state, crate::models::health::CircuitState::Open);
         assert!(got.opened_at.is_some());

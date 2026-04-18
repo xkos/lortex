@@ -1,4 +1,4 @@
-//! Provider 健康状态模型
+//! 模型健康状态模型
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -21,11 +21,11 @@ impl Default for CircuitState {
     }
 }
 
-/// Provider 级别的健康状态
+/// 模型级别的健康状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProviderHealthStatus {
-    /// Provider ID
-    pub provider_id: String,
+pub struct ModelHealthStatus {
+    /// Model ID（格式: "provider_id/vendor_model_name"）
+    pub model_id: String,
 
     /// 当前熔断状态
     #[serde(default)]
@@ -48,11 +48,11 @@ pub struct ProviderHealthStatus {
     pub last_check_at: DateTime<Utc>,
 }
 
-impl ProviderHealthStatus {
+impl ModelHealthStatus {
     /// 创建一个健康的初始状态
-    pub fn new(provider_id: impl Into<String>) -> Self {
+    pub fn new(model_id: impl Into<String>) -> Self {
         Self {
-            provider_id: provider_id.into(),
+            model_id: model_id.into(),
             circuit_state: CircuitState::Closed,
             consecutive_failures: 0,
             last_success_at: None,

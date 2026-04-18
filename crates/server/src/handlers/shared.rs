@@ -110,7 +110,7 @@ pub(crate) async fn resolve_target(
 
     let available = state
         .circuit_breaker
-        .is_available(&model.provider_id)
+        .is_available(&model.id())
         .await
         .unwrap_or(true);
     if !available {
@@ -284,14 +284,14 @@ pub async fn complete_with_fallback(
         // 检查熔断器
         let available = state
             .circuit_breaker
-            .is_available(&model.provider_id)
+            .is_available(&model.id())
             .await
             .unwrap_or(true); // store 错误时不阻塞
         if !available {
             tracing::info!(
                 provider = %model.provider_id,
                 model = %model.id(),
-                "Skipping circuit-broken provider"
+                "Skipping circuit-broken model"
             );
             continue;
         }
@@ -330,7 +330,7 @@ pub async fn complete_with_fallback(
         match provider.complete(request).await {
             Ok(resp) => {
                 // 记录成功
-                let _ = state.circuit_breaker.record_success(&model.provider_id).await;
+                let _ = state.circuit_breaker.record_success(&model.id()).await;
                 // 记录模型级 RPM
                 state.rate_limiter.record_model_request(&model.id());
                 return Ok((resp, model.clone()));
@@ -343,7 +343,7 @@ pub async fn complete_with_fallback(
                     "LLM call failed, checking fallback"
                 );
                 // 记录失败
-                let _ = state.circuit_breaker.record_failure(&model.provider_id).await;
+                let _ = state.circuit_breaker.record_failure(&model.id()).await;
 
                 if is_retriable(&e) && models.len() > 1 {
                     last_error = Some(map_provider_error(e));

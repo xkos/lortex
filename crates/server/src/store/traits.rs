@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 
-use crate::models::{ApiKey, Model, Provider, ProviderHealthStatus, UsageRecord};
+use crate::models::{ApiKey, Model, ModelHealthStatus, Provider, UsageRecord};
 use crate::store::StoreError;
 
 /// 用量查询参数
@@ -97,11 +97,11 @@ pub trait ProxyStore: Send + Sync {
     // --- Health ---
     async fn get_health_status(
         &self,
-        provider_id: &str,
-    ) -> Result<Option<ProviderHealthStatus>, StoreError>;
-    async fn list_health_statuses(&self) -> Result<Vec<ProviderHealthStatus>, StoreError>;
+        model_id: &str,
+    ) -> Result<Option<ModelHealthStatus>, StoreError>;
+    async fn list_health_statuses(&self) -> Result<Vec<ModelHealthStatus>, StoreError>;
     async fn upsert_health_status(
         &self,
-        status: &ProviderHealthStatus,
+        status: &ModelHealthStatus,
     ) -> Result<(), StoreError>;
 }

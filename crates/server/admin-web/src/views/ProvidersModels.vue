@@ -17,23 +17,6 @@
               <el-tag :type="p.enabled ? 'success' : 'danger'" size="small" style="margin-left: 8px;">
                 {{ p.enabled ? $t('common.enabled') : $t('common.disabled') }}
               </el-tag>
-              <template v-if="getHealth(p.id)?.circuit_state === 'open'">
-                <el-tag type="danger" size="small" style="margin-left: 8px;">
-                  {{ $t('providers.circuitOpen') }} ({{ $t('providers.failures', { n: getHealth(p.id)?.consecutive_failures }) }})
-                </el-tag>
-                <el-button size="small" type="warning" style="margin-left: 8px;" @click.stop="handleResetCircuit(p.id)">
-                  {{ $t('providers.resetCircuit') }}
-                </el-button>
-              </template>
-              <template v-else-if="getHealth(p.id)?.circuit_state === 'half_open'">
-                <el-tag type="warning" size="small" style="margin-left: 8px;">{{ $t('providers.halfOpen') }}</el-tag>
-                <el-button size="small" type="warning" style="margin-left: 8px;" @click.stop="handleResetCircuit(p.id)">
-                  {{ $t('providers.resetCircuit') }}
-                </el-button>
-              </template>
-              <template v-else>
-                <el-tag type="success" size="small" style="margin-left: 8px;">{{ $t('providers.healthy') }}</el-tag>
-              </template>
               <span class="model-count">{{ $t('providers.modelCount', { n: getProviderModels(p.id).length }) }}</span>
               <span class="provider-actions">
                 <el-button size="small" @click.stop="showEditProvider(p)">{{ $t('common.edit') }}</el-button>
@@ -69,6 +52,27 @@
                 <el-tag :type="row.enabled ? 'success' : 'danger'" size="small">
                   {{ row.enabled ? $t('common.enabled') : $t('common.disabled') }}
                 </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column :label="$t('providers.health')" width="220">
+              <template #default="{ row }">
+                <template v-if="getHealth(row.provider_id, row.vendor_model_name)?.circuit_state === 'open'">
+                  <el-tag type="danger" size="small">
+                    {{ $t('providers.circuitOpen') }} ({{ $t('providers.failures', { n: getHealth(row.provider_id, row.vendor_model_name)?.consecutive_failures }) }})
+                  </el-tag>
+                  <el-button size="small" type="warning" style="margin-left: 4px;" @click="handleResetCircuit(row.provider_id, row.vendor_model_name)">
+                    {{ $t('providers.resetCircuit') }}
+                  </el-button>
+                </template>
+                <template v-else-if="getHealth(row.provider_id, row.vendor_model_name)?.circuit_state === 'half_open'">
+                  <el-tag type="warning" size="small">{{ $t('providers.halfOpen') }}</el-tag>
+                  <el-button size="small" type="warning" style="margin-left: 4px;" @click="handleResetCircuit(row.provider_id, row.vendor_model_name)">
+                    {{ $t('providers.resetCircuit') }}
+                  </el-button>
+                </template>
+                <template v-else>
+                  <el-tag type="success" size="small">{{ $t('providers.healthy') }}</el-tag>
+                </template>
               </template>
             </el-table-column>
             <el-table-column :label="$t('common.actions')" width="180">
@@ -247,7 +251,7 @@ interface Provider {
 }
 
 interface HealthStatus {
-  provider_id: string
+  model_id: string
   circuit_state: string
   consecutive_failures: number
 }
@@ -301,8 +305,8 @@ function getProviderModels(providerId: string) {
   return models.value.filter(m => m.provider_id === providerId)
 }
 
-function getHealth(providerId: string): HealthStatus | undefined {
-  return healthMap.value.get(providerId)
+function getHealth(providerId: string, modelName: string): HealthStatus | undefined {
+  return healthMap.value.get(`${providerId}/${modelName}`)
 }
 
 async function fetchAll() {
@@ -327,7 +331,7 @@ async function fetchHealthStatuses() {
     const { data } = await api.get('/health')
     const map = new Map<string, HealthStatus>()
     for (const s of data) {
-      map.set(s.provider_id, s)
+      map.set(s.model_id, s)
     }
     healthMap.value = map
   } catch {
@@ -377,9 +381,9 @@ async function handleDeleteProvider(id: string) {
   }
 }
 
-async function handleResetCircuit(providerId: string) {
+async function handleResetCircuit(providerId: string, modelName: string) {
   try {
-    await api.post(`/health/${providerId}/reset`)
+    await api.post(`/health/${providerId}/${modelName}/reset`)
     ElMessage.success(t('providers.resetSuccess'))
     await fetchHealthStatuses()
   } catch {

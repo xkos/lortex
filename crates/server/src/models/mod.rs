@@ -7,7 +7,7 @@ pub mod provider;
 pub mod usage;
 
 pub use api_key::ApiKey;
-pub use health::{CircuitState, ProviderHealthStatus};
+pub use health::{CircuitState, ModelHealthStatus};
 pub use model::{Model, ModelType, ApiFormat};
 pub use provider::{Provider, Vendor};
 pub use usage::UsageRecord;

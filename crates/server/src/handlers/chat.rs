@@ -211,9 +211,9 @@ async fn chat_completions_stream(
     let mut model = None;
     let mut provider = None;
     for m in &models {
-        let available = state.circuit_breaker.is_available(&m.provider_id).await.unwrap_or(true);
+        let available = state.circuit_breaker.is_available(&m.id()).await.unwrap_or(true);
         if !available {
-            tracing::info!(provider = %m.provider_id, "Skipping circuit-broken provider (stream)");
+            tracing::info!(model = %m.id(), "Skipping circuit-broken model (stream)");
             continue;
         }
         // 检查模型级 RPM/TPM 限流
@@ -460,12 +460,12 @@ async fn passthrough_blocking_openai(
     let _ = if status >= 400 {
         state
             .circuit_breaker
-            .record_failure(&model.provider_id)
+            .record_failure(&model.id())
             .await
     } else {
         state
             .circuit_breaker
-            .record_success(&model.provider_id)
+            .record_success(&model.id())
             .await
     };
 
@@ -529,7 +529,7 @@ async fn passthrough_stream_openai(
         Err(e) => {
             let _ = state
                 .circuit_breaker
-                .record_failure(&model.provider_id)
+                .record_failure(&model.id())
                 .await;
             tracing::warn!(
                 status = %e.status,
@@ -550,7 +550,7 @@ async fn passthrough_stream_openai(
         Ok((_status, sniffer_stream)) => {
             let _ = state
                 .circuit_breaker
-                .record_success(&model.provider_id)
+                .record_success(&model.id())
                 .await;
 
             let usage_handle = sniffer_stream.usage_handle();

@@ -68,11 +68,11 @@ async fn embeddings_inner(
         // 熔断器检查
         let available = state
             .circuit_breaker
-            .is_available(&model.provider_id)
+            .is_available(&model.id())
             .await
             .unwrap_or(true);
         if !available {
-            tracing::info!(provider = %model.provider_id, "Skipping circuit-broken provider (embed)");
+            tracing::info!(model = %model.id(), "Skipping circuit-broken model (embed)");
             continue;
         }
 
@@ -119,7 +119,7 @@ async fn embeddings_inner(
         match provider.embed(embed_req).await {
             Ok(embed_resp) => {
                 // 记录成功
-                let _ = state.circuit_breaker.record_success(&model.provider_id).await;
+                let _ = state.circuit_breaker.record_success(&model.id()).await;
                 state.rate_limiter.record_model_request(&model.id());
 
                 // Usage tracking span
@@ -171,7 +171,7 @@ async fn embeddings_inner(
                     error = %e,
                     "Embedding call failed, checking fallback"
                 );
-                let _ = state.circuit_breaker.record_failure(&model.provider_id).await;
+                let _ = state.circuit_breaker.record_failure(&model.id()).await;
                 last_error = Some(shared::map_provider_error(e));
                 continue;
             }
