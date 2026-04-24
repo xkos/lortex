@@ -8,6 +8,7 @@ use axum::{
 use chrono::Utc;
 use serde::Deserialize;
 
+use crate::handlers::admin::LogInternal;
 use crate::models::provider::{Provider, Vendor};
 use crate::state::AppState;
 
@@ -41,7 +42,7 @@ pub async fn list(
 ) -> Result<Json<Vec<Provider>>, StatusCode> {
     state.store.list_providers().await
         .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .log_internal("list_providers")
 }
 
 pub async fn get(
@@ -49,7 +50,7 @@ pub async fn get(
     Path(id): Path<String>,
 ) -> Result<Json<Provider>, StatusCode> {
     state.store.get_provider(&id).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .log_internal("get_provider")?
         .map(Json)
         .ok_or(StatusCode::NOT_FOUND)
 }
@@ -69,7 +70,7 @@ pub async fn create(
         created_at: Utc::now(),
     };
     state.store.upsert_provider(&provider).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .log_internal("upsert_provider (create)")?;
     Ok((StatusCode::CREATED, Json(provider)))
 }
 
@@ -79,7 +80,7 @@ pub async fn update(
     Json(req): Json<UpdateProviderRequest>,
 ) -> Result<Json<Provider>, StatusCode> {
     let mut provider = state.store.get_provider(&id).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .log_internal("get_provider (update)")?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     if let Some(v) = req.vendor { provider.vendor = Vendor::from_str(&v); }
@@ -90,7 +91,7 @@ pub async fn update(
     if let Some(v) = req.enabled { provider.enabled = v; }
 
     state.store.upsert_provider(&provider).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .log_internal("upsert_provider (update)")?;
     Ok(Json(provider))
 }
 
@@ -99,6 +100,6 @@ pub async fn delete(
     Path(id): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
     state.store.delete_provider(&id).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .log_internal("delete_provider")?;
     Ok(StatusCode::NO_CONTENT)
 }

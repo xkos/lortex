@@ -147,6 +147,9 @@ export default {
     copied: '已复制到剪贴板',
     keyCopied: '密钥已复制到剪贴板',
     copyFailed: '复制密钥失败',
+    duplicate: '复制',
+    duplicateTitle: '复制 API 密钥',
+    copySuffix: '副本',
   },
   usage: {
     title: '用量统计',

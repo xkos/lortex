@@ -10,6 +10,7 @@ use axum::{
 use chrono::Utc;
 use serde::{Deserialize, Deserializer};
 
+use crate::handlers::admin::LogInternal;
 use crate::models::model::{ApiFormat, Model, ModelType};
 use crate::state::AppState;
 
@@ -79,7 +80,7 @@ pub async fn list(
 ) -> Result<Json<Vec<Model>>, StatusCode> {
     state.store.list_models().await
         .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .log_internal("list_models")
 }
 
 pub async fn get(
@@ -87,7 +88,7 @@ pub async fn get(
     Path((provider_id, model_name)): Path<(String, String)>,
 ) -> Result<Json<Model>, StatusCode> {
     state.store.get_model(&provider_id, &model_name).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .log_internal("get_model")?
         .map(Json)
         .ok_or(StatusCode::NOT_FOUND)
 }
@@ -121,7 +122,7 @@ pub async fn create(
         created_at: Utc::now(),
     };
     state.store.upsert_model(&model).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .log_internal("upsert_model (create)")?;
     Ok((StatusCode::CREATED, Json(model)))
 }
 
@@ -153,7 +154,7 @@ pub async fn update(
     Json(req): Json<UpdateModelRequest>,
 ) -> Result<Json<Model>, StatusCode> {
     let mut model = state.store.get_model(&provider_id, &model_name).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .log_internal("get_model (update)")?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     if let Some(v) = req.display_name { model.display_name = v; }
@@ -176,7 +177,7 @@ pub async fn update(
     if let Some(v) = req.enabled { model.enabled = v; }
 
     state.store.upsert_model(&model).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .log_internal("upsert_model (update)")?;
     Ok(Json(model))
 }
 
@@ -185,6 +186,6 @@ pub async fn delete(
     Path((provider_id, model_name)): Path<(String, String)>,
 ) -> Result<StatusCode, StatusCode> {
     state.store.delete_model(&provider_id, &model_name).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .log_internal("delete_model")?;
     Ok(StatusCode::NO_CONTENT)
 }

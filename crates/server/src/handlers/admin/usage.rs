@@ -62,7 +62,10 @@ pub async fn list(
         .store
         .query_usage(&query)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "usage query failed");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
 
     Ok(Json(serde_json::to_value(&records).unwrap()))
 }
@@ -77,7 +80,10 @@ pub async fn summary(
         .store
         .summarize_usage(&query)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "usage query failed");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
 
     Ok(Json(summary))
 }
@@ -92,7 +98,10 @@ pub async fn trend(
         .store
         .usage_trend(&query)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "usage query failed");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
     Ok(Json(points))
 }
 
@@ -106,7 +115,10 @@ pub async fn by_model(
         .store
         .usage_by_model(&query)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "usage query failed");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
     Ok(Json(groups))
 }
 
@@ -120,6 +132,9 @@ pub async fn by_key(
         .store
         .usage_by_key(&query)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "usage query failed");
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        })?;
     Ok(Json(groups))
 }

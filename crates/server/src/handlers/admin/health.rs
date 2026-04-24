@@ -6,6 +6,7 @@ use axum::{
     Json,
 };
 
+use crate::handlers::admin::LogInternal;
 use crate::models::ModelHealthStatus;
 use crate::state::AppState;
 
@@ -17,7 +18,7 @@ pub async fn list(
         .list_health_statuses()
         .await
         .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .log_internal("list_health_statuses")
 }
 
 pub async fn reset(
@@ -29,6 +30,6 @@ pub async fn reset(
         .circuit_breaker
         .force_reset(&model_id)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .log_internal("circuit_breaker.force_reset")?;
     Ok(StatusCode::NO_CONTENT)
 }

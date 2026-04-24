@@ -42,9 +42,10 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column :label="$t('common.actions')" width="260">
+      <el-table-column :label="$t('common.actions')" width="320">
         <template #default="{ row }">
           <el-button size="small" @click="showEdit(row)">{{ $t('common.edit') }}</el-button>
+          <el-button size="small" @click="showCopy(row)">{{ $t('keys.duplicate') }}</el-button>
           <el-popconfirm :title="$t('keys.confirmDelete')" @confirm="handleDelete(row.id)">
             <template #reference>
               <el-button size="small" type="danger">{{ $t('common.delete') }}</el-button>
@@ -55,7 +56,7 @@
     </el-table>
 
     <!-- Create Dialog -->
-    <el-dialog v-model="createDialogVisible" :title="$t('keys.createTitle')" width="550px">
+    <el-dialog v-model="createDialogVisible" :title="isDuplicating ? $t('keys.duplicateTitle') : $t('keys.createTitle')" width="550px">
       <el-form :model="createForm" label-width="130px">
         <el-form-item :label="$t('common.name')">
           <el-input v-model="createForm.name" :placeholder="$t('keys.namePlaceholder')" />
@@ -185,6 +186,7 @@ const saving = ref(false)
 const createDialogVisible = ref(false)
 const keyCreatedVisible = ref(false)
 const editDialogVisible = ref(false)
+const isDuplicating = ref(false)
 const createdKey = ref('')
 const mappingList = ref<{ placeholder: string; model: string }[]>([])
 
@@ -209,6 +211,7 @@ const createForm = ref({
   name: '',
   model_group: [] as string[],
   default_model: '',
+  fallback_models: [] as string[],
   rpm_limit: 0,
   tpm_limit: 0,
 })
@@ -247,8 +250,24 @@ async function fetchModels() {
 }
 
 function showCreate() {
-  createForm.value = { name: '', model_group: [], default_model: '', rpm_limit: 0, tpm_limit: 0 }
+  createForm.value = { name: '', model_group: [], default_model: '', fallback_models: [], rpm_limit: 0, tpm_limit: 0 }
   mappingList.value = []
+  isDuplicating.value = false
+  createDialogVisible.value = true
+}
+
+function showCopy(row: any) {
+  createForm.value = {
+    name: `${row.name} ${t('keys.copySuffix')}`,
+    model_group: [...(row.model_group || [])],
+    default_model: row.default_model || '',
+    fallback_models: [...(row.fallback_models || [])],
+    rpm_limit: row.rpm_limit || 0,
+    tpm_limit: row.tpm_limit || 0,
+  }
+  const mm = row.model_map || {}
+  mappingList.value = Object.entries(mm).map(([placeholder, model]) => ({ placeholder, model: model as string }))
+  isDuplicating.value = true
   createDialogVisible.value = true
 }
 

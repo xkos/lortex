@@ -5,7 +5,10 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use std::time::Duration;
+use tower_http::classify::ServerErrorsFailureClass;
 use tower_http::trace::TraceLayer;
+use tracing::Span;
 
 use crate::handlers::{admin, chat, embed, messages, models};
 use crate::middleware::auth::{admin_auth, AdminKey};
@@ -57,5 +60,42 @@ pub fn app_router(state: AppState, admin_key: String, with_admin_web: bool) -> R
             .route("/admin/web/{*path}", get(crate::handlers::web::static_file));
     }
 
-    router.layer(TraceLayer::new_for_http())
+    router.layer(
+        TraceLayer::new_for_http()
+            .make_span_with(|req: &axum::http::Request<_>| {
+                tracing::info_span!(
+                    "http",
+                    method = %req.method(),
+                    uri = %req.uri(),
+                    version = ?req.version(),
+                )
+            })
+            .on_response(
+                |res: &axum::http::Response<_>, latency: Duration, _span: &Span| {
+                    let status = res.status();
+                    if status.is_server_error() || status.is_client_error() {
+                        tracing::warn!(
+                            status = status.as_u16(),
+                            latency_ms = latency.as_millis() as u64,
+                            "http response (error)"
+                        );
+                    } else {
+                        tracing::debug!(
+                            status = status.as_u16(),
+                            latency_ms = latency.as_millis() as u64,
+                            "http response"
+                        );
+                    }
+                },
+            )
+            .on_failure(
+                |error: ServerErrorsFailureClass, latency: Duration, _span: &Span| {
+                    tracing::error!(
+                        latency_ms = latency.as_millis() as u64,
+                        "http failure: {}",
+                        error
+                    );
+                },
+            ),
+    )
 }

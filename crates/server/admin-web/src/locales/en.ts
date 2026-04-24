@@ -147,6 +147,9 @@ export default {
     copied: 'Copied to clipboard',
     keyCopied: 'Key copied to clipboard',
     copyFailed: 'Failed to copy key',
+    duplicate: 'Duplicate',
+    duplicateTitle: 'Duplicate API Key',
+    copySuffix: 'copy',
   },
   usage: {
     title: 'Usage Statistics',
