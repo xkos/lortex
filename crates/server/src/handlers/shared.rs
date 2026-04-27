@@ -15,11 +15,16 @@ use crate::models::{ApiKey, Model};
 use crate::state::AppState;
 
 /// 从客户端请求中提取需要透传给上游 provider 的 headers
+///
+/// `user-agent` 透传是因为部分 provider（如 cursorlinkai）按 UA 做路由/限流；
+/// 透传客户端 UA 可以避免 proxy 自身的 `reqwest/*` 被识别成爬虫而被静默切断连接。
+/// 客户端没带 UA 时，上游仍会收到 reqwest 默认 UA，此时应在 model 的 extra_headers
+/// 配置里显式覆盖（例如 `user-agent: curl/8.7.1`）。
 pub fn extract_passthrough_headers(headers: &axum::http::HeaderMap) -> HashMap<String, String> {
-    // 透传的 header 前缀/名称列表
     const PASSTHROUGH_HEADERS: &[&str] = &[
         "anthropic-beta",
         "anthropic-version",
+        "user-agent",
     ];
 
     let mut result = HashMap::new();
