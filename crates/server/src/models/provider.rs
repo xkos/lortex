@@ -46,6 +46,20 @@ impl<'de> Deserialize<'de> for Vendor {
     }
 }
 
+/// 上游认证方案
+///
+/// - `Auto`（默认）：按 ApiFormat 决定 —— Anthropic 走 `x-api-key`，OpenAI 走 `Authorization: Bearer`
+/// - `Bearer`：强制 `Authorization: Bearer <key>`（常见于第三方 Anthropic 兼容网关，如 cursorlink、openrouter）
+/// - `XApiKey`：强制 `x-api-key: <key>`（Anthropic 官方）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthScheme {
+    #[default]
+    Auto,
+    Bearer,
+    XApiKey,
+}
+
 /// LLM 服务供应商，持有访问凭证和 base URL
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Provider {
@@ -62,6 +76,9 @@ pub struct Provider {
     /// 官网链接（方便快速跳转，尤其中转商场景）
     #[serde(default)]
     pub website_url: String,
+    /// 上游认证方案，默认 Auto（按 ApiFormat 决定）
+    #[serde(default)]
+    pub auth_scheme: AuthScheme,
     /// 是否启用
     pub enabled: bool,
     pub created_at: DateTime<Utc>,

@@ -14,7 +14,7 @@ use lortex_core::provider::Usage;
 use crate::handlers::provider_builder::merge_headers;
 use crate::handlers::shared::ProxyError;
 use crate::models::model::ApiFormat;
-use crate::models::provider::Provider as ProviderConfig;
+use crate::models::provider::{AuthScheme, Provider as ProviderConfig};
 use crate::models::Model;
 
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
@@ -23,6 +23,7 @@ pub(crate) struct PassthroughConfig {
     pub upstream_url: String,
     pub api_key: String,
     pub format: ApiFormat,
+    pub auth_scheme: AuthScheme,
     pub vendor_model_name: String,
     pub extra_headers: HashMap<String, String>,
 }
@@ -43,8 +44,20 @@ pub(crate) fn build_passthrough_config(
         upstream_url: format!("{}{}", base, path),
         api_key: provider_config.api_key.clone(),
         format: format.clone(),
+        auth_scheme: provider_config.auth_scheme,
         vendor_model_name: model.vendor_model_name.clone(),
         extra_headers: headers,
+    }
+}
+
+/// 把 `Auto` 按 ApiFormat 解析成具体 scheme
+fn resolve_auth_scheme(scheme: AuthScheme, format: &ApiFormat) -> AuthScheme {
+    match scheme {
+        AuthScheme::Auto => match format {
+            ApiFormat::Anthropic => AuthScheme::XApiKey,
+            ApiFormat::OpenAI => AuthScheme::Bearer,
+        },
+        other => other,
     }
 }
 
@@ -71,16 +84,20 @@ fn build_upstream_request(
         .header("Content-Type", "application/json")
         .body(body);
 
-    match config.format {
-        ApiFormat::Anthropic => {
-            req = req.header("x-api-key", &config.api_key);
-            if !config.extra_headers.contains_key("anthropic-version") {
-                req = req.header("anthropic-version", ANTHROPIC_API_VERSION);
-            }
+    // Auth header — 按 provider 配置的 scheme 决定；Auto 时按 format fallback
+    req = match resolve_auth_scheme(config.auth_scheme, &config.format) {
+        AuthScheme::Bearer => {
+            req.header("Authorization", format!("Bearer {}", config.api_key))
         }
-        ApiFormat::OpenAI => {
-            req = req.header("Authorization", format!("Bearer {}", config.api_key));
-        }
+        AuthScheme::XApiKey => req.header("x-api-key", &config.api_key),
+        AuthScheme::Auto => unreachable!("Auto resolved above"),
+    };
+
+    // Format-specific 非认证头
+    if matches!(config.format, ApiFormat::Anthropic)
+        && !config.extra_headers.contains_key("anthropic-version")
+    {
+        req = req.header("anthropic-version", ANTHROPIC_API_VERSION);
     }
 
     for (k, v) in &config.extra_headers {
@@ -88,6 +105,16 @@ fn build_upstream_request(
     }
 
     req
+}
+
+fn format_error_chain(e: &(dyn std::error::Error + 'static)) -> String {
+    let mut msg = format!("{e}");
+    let mut src = e.source();
+    while let Some(s) = src {
+        msg.push_str(&format!(" | caused by: {s}"));
+        src = s.source();
+    }
+    msg
 }
 
 pub(crate) async fn forward_blocking(
@@ -98,13 +125,14 @@ pub(crate) async fn forward_blocking(
     let resp = build_upstream_request(client, config, body)
         .send()
         .await
-        .map_err(|e| ProxyError::internal(format!("Upstream network error: {e}")))?;
+        .map_err(|e| {
+            ProxyError::internal(format!("Upstream network error: {}", format_error_chain(&e)))
+        })?;
 
     let status = resp.status().as_u16();
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| ProxyError::internal(format!("Failed to read upstream body: {e}")))?;
+    let bytes = resp.bytes().await.map_err(|e| {
+        ProxyError::internal(format!("Failed to read upstream body: {}", format_error_chain(&e)))
+    })?;
 
     Ok((status, bytes))
 }
@@ -117,15 +145,19 @@ pub(crate) async fn forward_stream(
     let resp = build_upstream_request(client, config, body)
         .send()
         .await
-        .map_err(|e| ProxyError::internal(format!("Upstream network error: {e}")))?;
+        .map_err(|e| {
+            ProxyError::internal(format!("Upstream network error: {}", format_error_chain(&e)))
+        })?;
 
     let status = resp.status().as_u16();
 
     if status >= 400 {
-        let error_bytes = resp
-            .bytes()
-            .await
-            .map_err(|e| ProxyError::internal(format!("Failed to read error body: {e}")))?;
+        let error_bytes = resp.bytes().await.map_err(|e| {
+            ProxyError::internal(format!(
+                "Failed to read error body: {}",
+                format_error_chain(&e)
+            ))
+        })?;
         return Err(ProxyError {
             status: axum::http::StatusCode::from_u16(status)
                 .unwrap_or(axum::http::StatusCode::BAD_GATEWAY),
@@ -140,7 +172,12 @@ pub(crate) async fn forward_stream(
     let inner = resp.bytes_stream();
     let stream = UsageSnifferStream {
         inner: Box::pin(inner.map(move |chunk| {
-            chunk.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+            chunk.map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format_error_chain(&e),
+                )
+            })
         })),
         format,
         usage: usage_clone,

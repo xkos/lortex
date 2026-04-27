@@ -535,6 +535,7 @@ mod tests {
             api_key: "sk-test-123".into(),
             base_url: "https://api.openai.com".into(),
             website_url: String::new(),
+            auth_scheme: Default::default(),
             enabled: true,
             created_at: Utc::now(),
         }

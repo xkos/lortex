@@ -116,6 +116,13 @@
         <el-form-item :label="$t('providers.apiKey')">
           <el-input v-model="providerForm.api_key" type="password" show-password />
         </el-form-item>
+        <el-form-item :label="$t('providers.authScheme')">
+          <el-select v-model="providerForm.auth_scheme">
+            <el-option :label="$t('providers.authSchemeAuto')" value="auto" />
+            <el-option :label="$t('providers.authSchemeBearer')" value="bearer" />
+            <el-option :label="$t('providers.authSchemeXApiKey')" value="x_api_key" />
+          </el-select>
+        </el-form-item>
         <el-form-item :label="$t('providers.baseUrl')">
           <el-input v-model="providerForm.base_url" placeholder="https://api.openai.com" />
         </el-form-item>
@@ -247,6 +254,7 @@ interface Provider {
   api_key: string
   base_url: string
   website_url: string
+  auth_scheme: 'auto' | 'bearer' | 'x_api_key'
   enabled: boolean
 }
 
@@ -267,7 +275,7 @@ const expandedProviders = ref<string[]>([])
 const providerDialogVisible = ref(false)
 const isEditProvider = ref(false)
 const emptyProviderForm = (): Provider => ({
-  id: '', vendor: 'openai', display_name: '', api_key: '', base_url: 'https://api.openai.com', website_url: '', enabled: true,
+  id: '', vendor: 'openai', display_name: '', api_key: '', base_url: 'https://api.openai.com', website_url: '', auth_scheme: 'auto', enabled: true,
 })
 const providerForm = ref<Provider>(emptyProviderForm())
 

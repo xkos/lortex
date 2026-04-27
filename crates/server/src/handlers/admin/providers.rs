@@ -9,7 +9,7 @@ use chrono::Utc;
 use serde::Deserialize;
 
 use crate::handlers::admin::LogInternal;
-use crate::models::provider::{Provider, Vendor};
+use crate::models::provider::{AuthScheme, Provider, Vendor};
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -21,6 +21,8 @@ pub struct CreateProviderRequest {
     pub base_url: String,
     #[serde(default)]
     pub website_url: String,
+    #[serde(default)]
+    pub auth_scheme: AuthScheme,
     #[serde(default = "default_true")]
     pub enabled: bool,
 }
@@ -34,6 +36,7 @@ pub struct UpdateProviderRequest {
     pub api_key: Option<String>,
     pub base_url: Option<String>,
     pub website_url: Option<String>,
+    pub auth_scheme: Option<AuthScheme>,
     pub enabled: Option<bool>,
 }
 
@@ -66,6 +69,7 @@ pub async fn create(
         api_key: req.api_key,
         base_url: req.base_url,
         website_url: req.website_url,
+        auth_scheme: req.auth_scheme,
         enabled: req.enabled,
         created_at: Utc::now(),
     };
@@ -88,6 +92,7 @@ pub async fn update(
     if let Some(v) = req.api_key { provider.api_key = v; }
     if let Some(v) = req.base_url { provider.base_url = v; }
     if let Some(v) = req.website_url { provider.website_url = v; }
+    if let Some(v) = req.auth_scheme { provider.auth_scheme = v; }
     if let Some(v) = req.enabled { provider.enabled = v; }
 
     state.store.upsert_provider(&provider).await
