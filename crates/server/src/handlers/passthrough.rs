@@ -11,11 +11,9 @@ use serde_json::Value;
 
 use lortex_core::provider::Usage;
 
-use crate::handlers::provider_builder::merge_headers;
 use crate::handlers::shared::ProxyError;
 use crate::models::model::ApiFormat;
-use crate::models::provider::{AuthScheme, Provider as ProviderConfig};
-use crate::models::Model;
+use crate::models::provider::AuthScheme;
 
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 
@@ -26,28 +24,6 @@ pub(crate) struct PassthroughConfig {
     pub auth_scheme: AuthScheme,
     pub vendor_model_name: String,
     pub extra_headers: HashMap<String, String>,
-}
-
-pub(crate) fn build_passthrough_config(
-    provider_config: &ProviderConfig,
-    model: &Model,
-    format: &ApiFormat,
-    client_headers: &HashMap<String, String>,
-) -> PassthroughConfig {
-    let headers = merge_headers(&model.extra_headers, client_headers);
-    let path = match format {
-        ApiFormat::Anthropic => "/v1/messages",
-        ApiFormat::OpenAI => "/v1/chat/completions",
-    };
-    let base = provider_config.base_url.trim_end_matches('/');
-    PassthroughConfig {
-        upstream_url: format!("{}{}", base, path),
-        api_key: provider_config.api_key.clone(),
-        format: format.clone(),
-        auth_scheme: provider_config.auth_scheme,
-        vendor_model_name: model.vendor_model_name.clone(),
-        extra_headers: headers,
-    }
 }
 
 /// 把 `Auto` 按 ApiFormat 解析成具体 scheme

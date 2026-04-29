@@ -20,9 +20,9 @@ use lortex_core::error::ProviderError;
 use lortex_core::provider::StreamEvent;
 
 use crate::handlers::passthrough::{
-    self, build_passthrough_config, extract_usage_openai, forward_blocking, forward_stream,
-    prepare_body,
+    self, extract_usage_openai, forward_blocking, forward_stream, prepare_body, PassthroughConfig,
 };
+use crate::handlers::provider_builder::merge_headers;
 use crate::handlers::shared::{self, ProxyError};
 use crate::layer::helpers::{record_model_fields, record_usage_fields};
 use crate::models::model::ApiFormat;
@@ -84,12 +84,15 @@ pub async fn chat_completions(
     };
 
     if target.passthrough {
-        let config = build_passthrough_config(
-            &target.provider_config,
-            &target.model,
-            &ApiFormat::OpenAI,
-            &client_headers,
-        );
+        let base = target.provider_config.base_url.trim_end_matches('/');
+        let config = PassthroughConfig {
+            upstream_url: format!("{}/v1/chat/completions", base),
+            api_key: target.provider_config.api_key.clone(),
+            format: ApiFormat::OpenAI,
+            auth_scheme: target.provider_config.auth_scheme,
+            vendor_model_name: target.model.vendor_model_name.clone(),
+            extra_headers: merge_headers(&target.model.extra_headers, &client_headers),
+        };
         let prepared = match prepare_body(&body, &config) {
             Ok(b) => b,
             Err(e) => return oai_error_response(e),
