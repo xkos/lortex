@@ -10,7 +10,7 @@ use crate::models::model::ApiFormat;
 use crate::models::Model;
 use crate::models::provider::Provider as ProviderConfig;
 
-/// 合并 model extra_headers 与客户端 headers（客户端优先）
+/// 合并 model extra_headers 与客户端 headers（model 优先）
 ///
 /// 对于 `anthropic-beta` 等逗号分隔的 header，合并值并去重。
 pub(crate) fn merge_headers(
@@ -34,8 +34,8 @@ pub(crate) fn merge_headers(
             } else {
                 merged.insert(lower_key, client_val.clone());
             }
-        } else {
-            // 客户端优先覆盖
+        } else if !merged.contains_key(&lower_key) {
+            // model 优先：仅当 model 未设置该 header 时才使用客户端值
             merged.insert(lower_key, client_val.clone());
         }
     }
@@ -97,9 +97,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn merge_headers_client_overrides() {
+    fn merge_headers_model_overrides() {
         let mut model = HashMap::new();
         model.insert("x-custom".into(), "model-val".into());
+        let mut client = HashMap::new();
+        client.insert("x-custom".into(), "client-val".into());
+
+        let merged = merge_headers(&model, &client);
+        assert_eq!(merged.get("x-custom").unwrap(), "model-val");
+    }
+
+    #[test]
+    fn merge_headers_client_fills_when_model_absent() {
+        let model = HashMap::new();
         let mut client = HashMap::new();
         client.insert("x-custom".into(), "client-val".into());
 
